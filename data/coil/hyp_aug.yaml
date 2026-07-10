@@ -1,0 +1,45 @@
+# Hyperparameters for coil_head detection training (v4)
+# 改动日期：2026-07-05
+# 数据：train=556（原 529 + 27 张 val-only FN）, val=102
+
+# === 几何变换 ===
+degrees: 5.0
+translate: 0.1
+scale: 0.5
+shear: 0.0
+perspective: 0.0005
+flipud: 0.5
+fliplr: 0.5
+
+# === 颜色空间 ===
+hsv_h: 0.015
+hsv_s: 0.7
+hsv_v: 0.4
+
+# === 组合增强（mosaic 关闭以保持 rect 几何）===
+mosaic: 0.0            # 保持 0.0（rect=True 长宽比冲突）
+mixup: 0.0
+copy_paste: 0.2        # 0.1 → 0.2（多看目标位置）
+
+# === 损失/正则 ===
+box: 5.0               # 7.5 → 5.0（降 bbox loss，宽容 GT 不强求紧贴）
+cls: 1.0               # 0.5 → 1.0（升 cls loss，强化 conf 校准）
+dfl: 1.5
+label_smoothing: 0.02  # 0.05 → 0.02（轻微降，让 conf 更高）
+
+# === Coil-specific: bbox_random_shrink（保持中心，按边长随机缩放）===
+bbox_shrink_min: 0.8   # 边长最小缩放（用户确认：按边长 0.8~1.2）
+bbox_shrink_max: 1.2
+bbox_shrink_p: 1.0
+
+# === Coil-specific: multi-scale（保持长宽比）===
+multi_scale: 0.2       # ±20%，imgsz 在 [820, 1228] 之间随机；0 = 关闭
+
+# === Coverage Loss（用户确认：coverage_weight=0.5）===
+coverage: true         # 启用 Coverage Loss
+coverage_weight: 0.5   # 与 IoU loss 大致平衡
+coverage_sigma: 20.0   # sigmoid 软化参数（像素，imgsz=1024 坐标系）
+
+# === NWD（保持默认关闭）===
+nwd: false
+nwd_constant: 12.0

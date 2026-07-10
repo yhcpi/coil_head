@@ -1,0 +1,13 @@
+# 钢卷头尾检测数据集（v1, 2026-07-01）
+# 来源：repos/Hyper-YOLO/粗钢卷/（31 张图 + 27 个 labelme JSON + 4 空图）
+# 拆分：25 train (22标 + 3空) / 6 val (5标 + 1空)
+
+path: /home/pi/projects/hyperyolo/data/coil
+train: images/train
+val: images/val
+
+# 类别
+nc: 1
+names: ['coil_head']
+
+# 备注：空图的标签文件是空的，YOLO 会自动当作 background 训练

@@ -1,0 +1,51 @@
+# Hyperparameters for coil_head detection training (v6 experiment C: Bayesian prior)
+# 改动日期：2026-07-08
+# 目的：在 v4 (Coverage-only) 基础上加 贝叶斯先验 / 宽松度自适应 bbox loss 权重
+# 关键：looseness_alpha > 0 时启用，等于 0 时完全等价 v4
+# 数据：train=556（原 529 + 27 张 val-only FN）, val=102
+
+# === 几何变换 ===
+degrees: 5.0
+translate: 0.1
+scale: 0.5
+shear: 0.0
+perspective: 0.0005
+flipud: 0.5
+fliplr: 0.5
+
+# === 颜色空间 ===
+hsv_h: 0.015
+hsv_s: 0.7
+hsv_v: 0.4
+
+# === 组合增强（mosaic 关闭以保持 rect 几何）===
+mosaic: 0.0
+mixup: 0.0
+copy_paste: 0.2
+
+# === 损失/正则 ===
+box: 5.0
+cls: 1.0
+dfl: 1.5
+label_smoothing: 0.02
+
+# === Coil-specific: bbox_random_shrink ===
+bbox_shrink_min: 0.8
+bbox_shrink_max: 1.2
+bbox_shrink_p: 1.0
+
+# === Coil-specific: multi-scale ===
+multi_scale: 0
+
+# === Coverage Loss（关闭：v4 baseline 训练时 loss.py 没此分支，v6 创新点 ablation 不依赖 coverage）===
+coverage: false  # 注意：v4 baseline (02_coverage_v4_N_model) 实际是纯 IoU loss 训练（loss.py 没 coverage 分支）
+coverage_weight: 0.5
+coverage_sigma: 20.0
+
+# === NWD（保持默认关闭）===
+nwd: false
+nwd_constant: 12.0
+
+# === 贝叶斯先验 / 宽松度自适应 bbox loss 权重（v6 创新点）===
+looseness_alpha: 0.0            # 0.0 = 完全关闭（v4 行为）；0.2 = 启用（温柔版）
+looseness_target_area: 4000.0   # 估计真实目标面积（GT median 60×68=4000 px²，400/2000 都太小 → 全部 bbox 被压权重）

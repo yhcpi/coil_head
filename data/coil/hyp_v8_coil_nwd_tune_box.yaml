@@ -1,0 +1,45 @@
+# NWD 调参 T2: 强 aug + box=0.5
+# 关键变更：box 从 1.5 降到 0.5
+# 目的：验证 NWD 像素级 distance 下 box_gain 还需要降
+
+# === 几何变换（强 aug，baseline）===
+degrees: 5.0
+translate: 0.1
+scale: 0.5
+shear: 0.0
+perspective: 0.0005
+flipud: 0.5
+fliplr: 0.5
+
+# === 颜色空间 ===
+hsv_h: 0.015
+hsv_s: 0.7
+hsv_v: 0.4
+
+# === 组合增强（强 aug）===
+mosaic: 0.0
+mixup: 0.0
+copy_paste: 0.2
+
+# === 损失/正则 ===
+box: 0.5               # ← T2 关键变更：从 1.5 降到 0.5
+cls: 1.0
+dfl: 1.5
+label_smoothing: 0.02
+
+# === bbox_random_shrink ===
+bbox_shrink_min: 0.8
+bbox_shrink_max: 1.2
+bbox_shrink_p: 1.0
+
+# === multi-scale ===
+multi_scale: 0.0
+
+# === NWD ===
+nwd: true
+nwd_constant: 12.0
+
+# === Coverage ===
+coverage: false
+coverage_weight: 0.5
+coverage_sigma: 20.0

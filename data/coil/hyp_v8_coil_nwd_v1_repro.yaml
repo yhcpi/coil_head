@@ -1,0 +1,47 @@
+# v8 NWD v1 精确复现 cfg（2026-07-10 验证 cfg 真相）
+# 来源：v8_nwd_full run 目录 args.yaml（mAP50=0.894）
+# 改动日期：2026-07-10
+# 目的：用 cfg= 在命令末尾的写法复现 v1 弱 aug + cls=0.5 + NWD
+#       用于跟 v4 baseline（强 aug + cls=1.0 + Coverage）做 apples-to-apples 对比
+
+# === 几何变换（弱 aug，v1 实证）===
+degrees: 0.0
+translate: 0.0
+scale: 0.0
+shear: 0.0
+perspective: 0.0
+flipud: 0.0
+fliplr: 0.5
+
+# === 颜色空间 ===
+hsv_h: 0.015
+hsv_s: 0.7
+hsv_v: 0.4
+
+# === 组合增强（弱 aug）===
+mosaic: 0.0
+mixup: 0.0
+copy_paste: 0.0
+
+# === 损失/正则（v1 实证）===
+box: 1.5
+cls: 0.5               # ← v1 关键（cls=0.5 弱于 v4 的 1.0）
+dfl: 1.5
+label_smoothing: 0.0   # ← v1 关键（无平滑）
+
+# === bbox_random_shrink（v1 没有，默认值等同于关闭）===
+bbox_shrink_min: 1.0
+bbox_shrink_max: 1.0
+bbox_shrink_p: 0.0
+
+# === multi-scale（v1 设 0 关闭）===
+multi_scale: 0.0
+
+# === NWD（v1 启用）===
+nwd: true
+nwd_constant: 12.0
+
+# === Coverage（v1 关闭）===
+coverage: false
+coverage_weight: 0.5
+coverage_sigma: 20.0

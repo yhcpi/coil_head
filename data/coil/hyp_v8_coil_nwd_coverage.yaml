@@ -1,0 +1,45 @@
+# Hyperparameters for v8 NWD + Coverage combined experiment
+# 改动日期：2026-07-09
+# 目的：NWD 替换 IoU + Coverage 叠加（hyp_aug.yaml 字段 + 两个都启用）
+
+# === 几何变换（与 v4 baseline 一致）===
+degrees: 5.0
+translate: 0.1
+scale: 0.5
+shear: 0.0
+perspective: 0.0005
+flipud: 0.5
+fliplr: 0.5
+
+# === 颜色空间 ===
+hsv_h: 0.015
+hsv_s: 0.7
+hsv_v: 0.4
+
+# === 组合增强 ===
+mosaic: 0.0
+mixup: 0.0
+copy_paste: 0.2
+
+# === 损失/正则 ===
+box: 1.5               # NWD 替换 IoU 时 box gain 降
+cls: 1.0
+dfl: 1.5
+label_smoothing: 0.02
+
+# === bbox_random_shrink ===
+bbox_shrink_min: 0.8
+bbox_shrink_max: 1.2
+bbox_shrink_p: 1.0
+
+# === multi-scale（设 0 避开 collate_fn stack 失败，详见 hyp_aug.yaml 注释）===
+multi_scale: 0.0
+
+# === Coverage Loss（本实验启用）===
+coverage: true
+coverage_weight: 0.5
+coverage_sigma: 20.0
+
+# === NWD（本实验启用）===
+nwd: true
+nwd_constant: 12.0

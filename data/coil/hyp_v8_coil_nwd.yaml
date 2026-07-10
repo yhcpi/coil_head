@@ -1,0 +1,48 @@
+# Hyperparameters for v8 NWD experiment（NWD 替换 IoU）
+# 改动日期：2026-07-09
+# 目的：完全复用 v4 baseline (hyp_aug.yaml) 的 aug + loss 字段，只切换 NWD on / Coverage off
+# 教训：v8 NWD full (mAP50=0.894) 与 v4 Coverage (mAP50=0.877) 对比不公平，
+#       因为 v8 NWD 用的 cfg 是 box=1.5/cls=0.5/copy_paste=0 等弱化版，
+#       而 v4 Coverage 用的是 box=5.0/cls=1.0/copy_paste=0.2 等强化版 baseline 字段
+
+# === 几何变换（与 v4 baseline 一致）===
+degrees: 5.0
+translate: 0.1
+scale: 0.5
+shear: 0.0
+perspective: 0.0005
+flipud: 0.5
+fliplr: 0.5
+
+# === 颜色空间 ===
+hsv_h: 0.015
+hsv_s: 0.7
+hsv_v: 0.4
+
+# === 组合增强 ===
+mosaic: 0.0
+mixup: 0.0
+copy_paste: 0.2
+
+# === 损失/正则（NWD 替换 IoU 时 box 需降，参考 NWD 论文）===
+box: 1.5               # NWD 替换 IoU 时 box gain 必须降（v5_nwd_only.yaml box=5 是论文级默认值）
+cls: 1.0
+dfl: 1.5
+label_smoothing: 0.02
+
+# === bbox_random_shrink ===
+bbox_shrink_min: 0.8
+bbox_shrink_max: 1.2
+bbox_shrink_p: 1.0
+
+# === multi-scale（设 0 避开 collate_fn stack 失败，详见 hyp_aug.yaml 注释）===
+multi_scale: 0.0
+
+# === Coverage Loss（本实验关闭）===
+coverage: false
+coverage_weight: 0.5
+coverage_sigma: 20.0
+
+# === NWD（本实验启用）===
+nwd: true
+nwd_constant: 12.0

@@ -1,0 +1,51 @@
+# Hyperparameters for coil_head detection training (v6)
+# 改动日期：2026-07-05
+# 目的：在 v4 Coverage Loss 基础上叠加创新点 3：Heatmap-Aux 辅助 loss
+
+# === 几何变换（与 v4 一致）===
+degrees: 5.0
+translate: 0.1
+scale: 0.5
+shear: 0.0
+perspective: 0.0005
+flipud: 0.5
+fliplr: 0.5
+
+# === 颜色空间 ===
+hsv_h: 0.015
+hsv_s: 0.7
+hsv_v: 0.4
+
+# === 组合增强 ===
+mosaic: 0.0
+mixup: 0.0
+copy_paste: 0.2
+
+# === 损失/正则 ===
+box: 5.0
+cls: 1.0
+dfl: 1.5
+label_smoothing: 0.02
+
+# === Coil-specific: bbox_random_shrink ===
+bbox_shrink_min: 0.8
+bbox_shrink_max: 1.2
+bbox_shrink_p: 1.0
+
+# === Coil-specific: multi-scale ===
+# multi_scale: 0.0  # 关掉：RandomScaleRect 会产生异尺寸 batch，触发 collate_fn 失败
+# (v4 实际训练时也没启用，hyp_aug.yaml 的 multi_scale=0.2 未生效)
+
+# === Coverage Loss（v4 沿用）===
+coverage: true
+coverage_weight: 0.5
+coverage_sigma: 20.0
+
+# === NWD（保持关闭，与 v4 一致）===
+nwd: false
+nwd_constant: 12.0
+
+# === 创新点 3：Heatmap-Aux 辅助 loss（新增）===
+heatmap_aux: true           # 启用 heatmap 辅助 loss
+heatmap_aux_weight: 0.05    # 权重（小权重：单张 128×128 heatmap focal loss ≈ 6000，需保持辅助地位）
+heatmap_aux_sigma: 4.0      # 高斯核半径（feature cell 单位）

@@ -1,0 +1,46 @@
+# Hyperparameters for coil_head detection training (v5 experiment C)
+# 改动日期：2026-07-05
+# 目的：NWD + Coverage 组合，看两者叠加是否冗余 / 增益
+# 数据：train=556, val=102
+
+# === 几何变换 ===
+degrees: 5.0
+translate: 0.1
+scale: 0.5
+shear: 0.0
+perspective: 0.0005
+flipud: 0.5
+fliplr: 0.5
+
+# === 颜色空间 ===
+hsv_h: 0.015
+hsv_s: 0.7
+hsv_v: 0.4
+
+# === 组合增强 ===
+mosaic: 0.0
+mixup: 0.0
+copy_paste: 0.2
+
+# === 损失/正则 ===
+box: 5.0
+cls: 1.0
+dfl: 1.5
+label_smoothing: 0.02
+
+# === Coil-specific: bbox_random_shrink ===
+bbox_shrink_min: 0.8
+bbox_shrink_max: 1.2
+bbox_shrink_p: 1.0
+
+# === Coil-specific: multi-scale ===
+multi_scale: 0.2
+
+# === NWD（启用，替换 IoU）===
+nwd: true
+nwd_constant: 12.0
+
+# === Coverage Loss（同时启用，叠加在 NWD 上）===
+coverage: true
+coverage_weight: 0.5
+coverage_sigma: 20.0

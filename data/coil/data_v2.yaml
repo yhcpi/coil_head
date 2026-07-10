@@ -1,0 +1,6 @@
+# v2 数据集（原数据 + 新数据，无 CP-Aug）
+path: /home/pi/projects/hyperyolo/data/coil
+train: images/train
+val: images/val
+nc: 1
+names: ['coil_head']

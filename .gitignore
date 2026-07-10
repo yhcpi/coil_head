@@ -1,0 +1,54 @@
+# ===== 数据集（图片巨大，单独提供/下载）=====
+data/coil/images/
+data/coil/labels_backup_*/
+data/coil/coil.rar
+data/new_label/  # labelme JSON (内嵌 base64 图像，已转 YOLO 格式存到 data/coil/labels/)
+
+# ===== 训练产物（可重建）=====
+runs/
+**/runs/
+inspect/
+
+# ===== 模型权重（用 GitHub Release 分发）=====
+*.pt
+!repos/Hyper-YOLO/yolov8n.pt  # 上游 demo 用，可选保留
+*.onnx
+*.engine
+*.torchscript
+
+# ===== 第三方仓库（自行 clone）=====
+repos/
+
+# ===== 备份 / 临时文件 =====
+*.bak
+*.tar.gz
+*.tmp
+*.pyc
+__pycache__/
+*.pyo
+
+# ===== WSL/Windows 链接文件 =====
+*.pdf:Zone.Identifier
+
+# ===== 个人会话状态 =====
+.claude/
+.omo/
+.codegraph
+.idea/
+.vscode/
+
+# ===== 系统文件 =====
+.DS_Store
+Thumbs.db
+
+# ===== 日志 =====
+*.log
+nohup.out
+
+# ===== 个人文档 =====
+docs/袁昊宸周小结.pptx
+工作量.xlsx
+袁*.txt
+1.png
+lenient_metrics.py
+lenient_nms.py

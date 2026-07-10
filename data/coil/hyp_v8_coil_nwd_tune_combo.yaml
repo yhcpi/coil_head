@@ -1,0 +1,46 @@
+# NWD 调参 T3: 强 aug + box=0.5 + cls=0.5 组合
+# T1 发现: cls=0.5 让 mAP50 从 0.00005 涨到 0.05 (1000x)
+# T2 发现: box=0.5 让 mAP50 从 0.0004 涨到 0.04 (100x) — 比 cls 更关键
+# T3 目的: 验证 box=0.5 + cls=0.5 组合是否最优
+
+# === 几何变换（强 aug，baseline）===
+degrees: 5.0
+translate: 0.1
+scale: 0.5
+shear: 0.0
+perspective: 0.0005
+flipud: 0.5
+fliplr: 0.5
+
+# === 颜色空间 ===
+hsv_h: 0.015
+hsv_s: 0.7
+hsv_v: 0.4
+
+# === 组合增强（强 aug）===
+mosaic: 0.0
+mixup: 0.0
+copy_paste: 0.2
+
+# === 损失/正则 ===
+box: 0.5               # ← T2 关键发现
+cls: 0.5               # ← T1 关键发现
+dfl: 1.5
+label_smoothing: 0.02
+
+# === bbox_random_shrink ===
+bbox_shrink_min: 0.8
+bbox_shrink_max: 1.2
+bbox_shrink_p: 1.0
+
+# === multi-scale ===
+multi_scale: 0.0
+
+# === NWD ===
+nwd: true
+nwd_constant: 12.0
+
+# === Coverage ===
+coverage: false
+coverage_weight: 0.5
+coverage_sigma: 20.0

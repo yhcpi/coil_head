@@ -1,0 +1,49 @@
+# Hyperparameters for v8 Coverage experiment（IoU + Coverage 叠加）
+# 改动日期：2026-07-09
+# 目的：完全复用 v4 baseline (hyp_aug.yaml) 的 aug + loss 字段，只保留 Coverage 字段差异
+# 教训：v4 baseline 用 box=5.0 cls=1.0 copy_paste=0.2 degrees=5.0 flipud=0.5 label_smoothing=0.02
+#       bbox_shrink_min=0.8/max=1.2/p=1.0 multi_scale=0.2 —— 不能擅自改这些
+
+# === 几何变换（与 v4 baseline 一致）===
+degrees: 5.0
+translate: 0.1
+scale: 0.5
+shear: 0.0
+perspective: 0.0005
+flipud: 0.5
+fliplr: 0.5
+
+# === 颜色空间 ===
+hsv_h: 0.015
+hsv_s: 0.7
+hsv_v: 0.4
+
+# === 组合增强 ===
+mosaic: 0.0
+mixup: 0.0
+copy_paste: 0.2
+
+# === 损失/正则（与 v4 baseline 一致）===
+box: 5.0
+cls: 1.0
+dfl: 1.5
+label_smoothing: 0.02
+
+# === bbox_random_shrink（与 v4 baseline 一致）===
+bbox_shrink_min: 0.8
+bbox_shrink_max: 1.2
+bbox_shrink_p: 1.0
+
+# === multi-scale ===
+# 2026-07-09 注：v4 baseline 用 multi_scale:0.2 但 hook 当时未注册（hyp_v5_nwd_only.yaml 注释确认），
+# 实际从未生效。此处设 0 避开 collate_fn stack 失败（v6_v2/v6_v3 注释确认）
+multi_scale: 0.0
+
+# === Coverage Loss（本实验启用）===
+coverage: true
+coverage_weight: 0.5
+coverage_sigma: 20.0
+
+# === NWD（本实验关闭）===
+nwd: false
+nwd_constant: 12.0

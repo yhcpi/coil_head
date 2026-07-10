@@ -1,0 +1,59 @@
+# Hyperparameters for coil_head detection training (v7 experiment D-1: PA-Aug motion)
+# 改动日期：2026-07-09（coverage=false 修复版）
+# 目的：在 v4 实际配置（coverage=false / pure IoU）基础上加 PA-Aug motion 组件
+# 关键修复：v4 baseline args.yaml 无 coverage 字段（默认 false），但 v6_v1/v6_v2/v6_v3 + v7 旧版
+#          都设 coverage: true → coverage loss 分支 ACTIVE → 覆盖 IoU 梯度 → mAP=0
+#          设 coverage: false 与 v4 baseline 一致
+# 关键：paaug=motion 启用运动模糊；paaug=none 完全关闭
+# 数据：train=556（原 529 + 27 张 val-only FN）, val=102
+
+# === 几何变换 ===
+degrees: 5.0
+translate: 0.1
+scale: 0.5
+shear: 0.0
+perspective: 0.0005
+flipud: 0.5
+fliplr: 0.5
+
+# === 颜色空间 ===
+hsv_h: 0.015
+hsv_s: 0.7
+hsv_v: 0.4
+
+# === 组合增强 ===
+mosaic: 0.0
+mixup: 0.0
+copy_paste: 0.2
+
+# === 损失/正则 ===
+box: 5.0
+cls: 1.0
+dfl: 1.5
+label_smoothing: 0.02
+
+# === Coil-specific: bbox_random_shrink ===
+bbox_shrink_min: 0.8
+bbox_shrink_max: 1.2
+bbox_shrink_p: 1.0
+
+# === Coil-specific: multi-scale（与 v4 一致 = 0.2，但 collate bug 改 0）===
+multi_scale: 0
+
+# === Coverage Loss（关键修复：v4 baseline = false，关掉以避免覆盖 IoU 梯度）===
+coverage: false
+coverage_weight: 0.5
+coverage_sigma: 20.0
+
+# === NWD/GWD（关闭）===
+nwd: false
+nwd_constant: 12.0
+gwd: false
+gwd_tau: 1.0
+
+# === 贝叶斯先验（关闭，v4 一致）===
+looseness_alpha: 0.0
+looseness_target_area: 400.0
+
+# === PA-Aug 物理感知增强（v7 创新点：单组件 ablation）===
+paaug: motion

@@ -1,0 +1,60 @@
+# Hyperparameters for coil_head detection training (v6 experiment C: Bayesian prior — v3)
+# 改动日期：2026-07-09（v3）
+# 目的：在 v4 实际配置（纯 IoU）基础上：GWD 替代 IoU + looseness_alpha=0.2
+# 与 v4 baseline (02_coverage_v4_N_model) 实际配置差异：
+#   - bbox loss:  IoU → GWD（更鲁棒的 distance-based loss）
+#   - bbox_random_shrink: 保持 v4 一致（min=0.8, max=1.2）
+#   - Coverage Loss: 关闭（v4 baseline 训时 loss.py 还没 coverage 分支）
+#   - multi_scale: 0（避开 collate bug，v4 baseline 现在代码也跑不通）
+#   - looseness_alpha: 0.2（v6 创新点；与 GWD 配合：GWD 给 wasserstein 距离 + looseness 给面积先验）
+# 数据：train=556（原 529 + 27 张 val-only FN）, val=102
+
+# === 几何变换（与 v4 一致）===
+degrees: 5.0
+translate: 0.1
+scale: 0.5
+shear: 0.0
+perspective: 0.0005
+flipud: 0.5
+fliplr: 0.5
+
+# === 颜色空间（与 v4 一致）===
+hsv_h: 0.015
+hsv_s: 0.7
+hsv_v: 0.4
+
+# === 组合增强（与 v4 一致）===
+mosaic: 0.0
+mixup: 0.0
+copy_paste: 0.2
+
+# === 损失/正则（与 v4 一致）===
+box: 5.0
+cls: 1.0
+dfl: 1.5
+label_smoothing: 0.02
+
+# === Coil-specific: bbox_random_shrink（与 v4 一致）===
+bbox_shrink_min: 0.8
+bbox_shrink_max: 1.2
+bbox_shrink_p: 1.0
+
+# === Coil-specific: multi_scale（v4=0.2，但 collate bug 故设 0）===
+multi_scale: 0
+
+# === Coverage Loss（关闭：v4 baseline 训时 loss.py 还没此分支）===
+coverage: false
+coverage_weight: 0.5
+coverage_sigma: 20.0
+
+# === NWD（关闭）===
+nwd: false
+nwd_constant: 12.0
+
+# === GWD（v6 v3 启用，替代 IoU）===
+gwd: true
+gwd_tau: 1.0
+
+# === 贝叶斯先验 / 宽松度自适应 bbox loss 权重（v6 创新点）===
+looseness_alpha: 0.2            # 0.0 = 完全关闭（v4 行为）；0.2 = 启用
+looseness_target_area: 400.0    # 真实目标面积 20×20=400 px²（v6 假设）

@@ -1,0 +1,6 @@
+path: /home/pi/projects/hyperyolo/data/coil
+train: images/train
+val: images/val
+
+names:
+  0: coil_head

@@ -1,0 +1,51 @@
+# Hyperparameters for coil_head detection training (v6 experiment C: Bayesian prior — v2)
+# 改动日期：2026-07-08（重做版）
+# 目的：在 v4 配置基础上加 贝叶斯先验 / 宽松度自适应 bbox loss 权重
+# 与 v4 (hyp_aug.yaml) 差异：仅 multi_scale: 0（避开 collate bug）+ 加 looseness_alpha=0.2
+# 数据：train=556（原 529 + 27 张 val-only FN）, val=102
+
+# === 几何变换（与 v4 一致）===
+degrees: 5.0
+translate: 0.1
+scale: 0.5
+shear: 0.0
+perspective: 0.0005
+flipud: 0.5
+fliplr: 0.5
+
+# === 颜色空间（与 v4 一致）===
+hsv_h: 0.015
+hsv_s: 0.7
+hsv_v: 0.4
+
+# === 组合增强（与 v4 一致）===
+mosaic: 0.0
+mixup: 0.0
+copy_paste: 0.2
+
+# === 损失/正则（与 v4 一致）===
+box: 5.0
+cls: 1.0
+dfl: 1.5
+label_smoothing: 0.02
+
+# === Coil-specific: bbox_random_shrink（与 v4 一致）===
+bbox_shrink_min: 0.8
+bbox_shrink_max: 1.2
+bbox_shrink_p: 1.0
+
+# === Coil-specific: multi_scale（v4=0.2，但 collate bug 故设 0）===
+multi_scale: 0
+
+# === Coverage Loss（与 v4 一致=true）===
+coverage: true
+coverage_weight: 0.5
+coverage_sigma: 20.0
+
+# === NWD（与 v4 一致）===
+nwd: false
+nwd_constant: 12.0
+
+# === 贝叶斯先验 / 宽松度自适应 bbox loss 权重（v6 创新点：v2 已修坐标空间 bug）===
+looseness_alpha: 0.2            # 0.0 = 完全关闭（v4 行为）；0.2 = 启用
+looseness_target_area: 400.0    # 真实目标面积 20×20=400 px²（v6 创新点假设）
