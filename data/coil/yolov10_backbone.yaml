@@ -1,0 +1,88 @@
+# Hyper-YOLO + YOLOv10-inspired 大核 backbone (方案 A: yaml-only)
+# 设计依据: YOLOv10 论文 (2405.14458) + ultralytics/cfg/models/v10/yolov10n.yaml
+#
+# === YOLOv10 实际创新 (COCO mAP +1.5 over YOLOv8n) ===
+#   1. C2fCIB: 7x7 DW conv in bottleneck (large kernel) — 论文 §3.2
+#   2. SCDown:  spatial-channel decoupled downsample — 论文 §3.3
+#   3. PSA:     partial self-attention at end of backbone — 论文 §3.4
+#   4. v10Detect: dual assignment head (one-to-one + one-to-many) — 论文 §3.1
+# 注意: YOLOv10 stem 仍是 3x3 (非 7x7) — 用户任务描述里"7x7 stem"为误读
+#       YOLOv10 的"大核"实际指 CIB bottleneck 内的 7x7 DW conv (C2fCIB)
+#
+# === 本 yaml 设计取舍 (约束: 0 新模块, 0 影响 baseline, 0 新文件到 src/) ===
+#   - 仅替换 stem (Conv k=7) + P3/P5 MANet GroupConv (kernel=7)
+#   - 缺 SCDown: Hyper-YOLO port 未导出该模块, 引入需改 src/ (违反约束)
+#   - 缺 PSA: 同上
+#   - 缺 v10Detect: 同上; 保留标准 Detect (兼容 lenient_nms + NWD/coverage patch)
+#   - "大核"近似: stem k=7 ≈ 论文表 6 中 "Large Separable Stem" 的 receptive field 增益
+#
+# === 权重兼容性 ===
+#   - Stem (k=7) vs 原 yolov8 stem (k=3) shape 不匹配 → backbone 前 2 层 fresh init
+#   - MANet k=7 GroupConv vs 原 k=3 GroupConv shape 不匹配 → 整段 backbone MANet fresh init
+#   - SPPF + neck (MANet + HyperComputeModule) + Detect shape 一致 → 可从 hyper-yolon.pt 加载
+#   - 实操: smoke 用 pretrained=False; full 用 pretrained=hyper-yolon.pt + strict=False
+#
+# === 与现有 patch 兼容性 ===
+#   - nwd: true           → src/hyper_yolo_patches/ultralytics/utils/loss.py 已支持
+#   - coverage: false     → 同上
+#   - spec_suppress: false → 默认关闭, 同 v8 NWD baseline
+#   - NBBoxNoise:         → bbox_shrink_* 字段, yaml 标准字段
+#   - head 标准 Detect:   → spec_suppress / lenient_nms 都基于此 head
+
+# Parameters
+nc: 1
+scales: # [depth, width, max_channels, threshold] — 与 hyper-yolon.yaml 一致
+  n: [0.33, 0.25, 1024, 6]
+  s: [0.33, 0.50, 1024, 8]
+  m: [0.67, 0.75, 768, 10]
+  l: [1.00, 1.00, 512, 10]
+  x: [1.00, 1.25, 512, 12]
+
+# YOLOv10-inspired 大核 backbone (与 hyper-yolon.yaml 同拓扑, 仅 stem/P3/P5 kernel 改大)
+backbone:
+  - [-1, 1, Conv, [64, 7, 2]]    # 0-P1/2  (YOLOv10-inspired 大核 stem, 替代 k=3)
+  - [-1, 1, Conv, [128, 7, 2]]   # 1-P2/4  (大核 stem, 替代 k=3)
+  - [-1, 3, MANet, [128, True, 2, 3]]   # 2-B2/4 (k=3, 与 hyper-yolon.yaml 同)
+  - [-1, 1, Conv, [256, 3, 2]]   # 3-P3/8
+  - [-1, 6, MANet, [256, True, 2, 7]]   # 4-B3/8 (YOLOv10-inspired: P3 大核 GroupConv 7x7)
+  - [-1, 1, Conv, [512, 3, 2]]   # 5-P4/16
+  - [-1, 6, MANet, [512, True, 2, 5]]   # 6-B4/16 (k=5, 与 hyper-yolon.yaml 同)
+  - [-1, 1, Conv, [1024, 3, 2]]  # 7-P5/32
+  - [-1, 3, MANet, [1024, True, 2, 7]]  # 8-B5/32 (YOLOv10-inspired: P5 大核 GroupConv 7x7)
+  - [-1, 1, SPPF, [1024, 5]]     # 9-B5/32 (P5 输出)
+
+# Hyper-YOLO 超图 neck + Detect head (与 hyper-yolon.yaml 完全一致, 未修改)
+head:
+  # Semantic Collecting
+  - [0, 1, nn.AvgPool2d, [8, 8, 0]]          # 10
+  - [2, 1, nn.AvgPool2d, [4, 4, 0]]          # 11
+  - [4, 1, nn.AvgPool2d, [2, 2, 0]]          # 12
+  - [9, 1, nn.Upsample, [None, 2, 'nearest']] # 13
+  - [[10, 11, 12, 6, 13], 1, Concat, [1]]    # 14 cat
+
+  # Hypergraph Computation
+  - [-1, 1, Conv, [512, 1, 1]]               # 15
+  - [-1, 1, HyperComputeModule, [512]]       # 16
+  - [-1, 3, MANet, [512, True, 2, 3]]        # 17
+
+  # Semantic Collecting
+  - [-1, 1, nn.AvgPool2d, [2, 2, 0]]         # 18
+  - [[-1, 9], 1, Concat, [1]]                # 19 cat
+  - [-1, 1, Conv, [1024, 1, 1]]              # 20 P5
+
+  - [[17, 6], 1, Concat, [1]]                # 21 cat
+  - [-1, 3, MANet, [512, False, 2, 3]]       # 22 P4
+
+  - [17, 1, nn.Upsample, [None, 2, 'nearest']] # 23
+  - [[-1, 4], 1, Concat, [1]]                # 24 cat
+  - [-1, 3, MANet, [256, False, 2, 3]]       # 25 P3/N3
+
+  - [-1, 1, Conv, [256, 3, 2]]               # 26
+  - [[-1, 22], 1, Concat, [1]]               # 27 cat
+  - [-1, 3, MANet, [512, False, 2, 3]]       # 28 N4
+
+  - [-1, 1, Conv, [512, 3, 2]]               # 29
+  - [[-1, 20], 1, Concat, [1]]               # 30 cat
+  - [-1, 3, C2f, [1024, False]]              # 31 N5
+
+  - [[25, 28, 31], 1, Detect, [nc]]          # 32 Detect(N3, N4, N5)

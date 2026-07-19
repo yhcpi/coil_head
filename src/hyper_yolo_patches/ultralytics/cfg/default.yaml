@@ -1,0 +1,144 @@
+# Ultralytics YOLO 🚀, AGPL-3.0 license
+# Default training settings and hyperparameters for medium-augmentation COCO training
+
+task: detect  # (str) YOLO task, i.e. detect, segment, classify, pose
+mode: train  # (str) YOLO mode, i.e. train, val, predict, export, track, benchmark
+
+# Train settings -------------------------------------------------------------------------------------------------------
+model: hyper-yolon.yaml # (str, optional) path to model file, i.e. hyper-yolon.pt, hyper-yolon.yaml
+data: coco.yaml # (str, optional) path to data file, i.e. coco128.yaml
+epochs: 500  # (int) number of epochs to train for
+patience: 100  # (int) epochs to wait for no observable improvement for early stopping of training
+batch: 20 # (int) number of images per batch (-1 for AutoBatch)
+imgsz: 640  # (int | list) input images size as int for train and val modes, or list[w,h] for predict and export modes
+save: True  # (bool) save train checkpoints and predict results
+val_period: 1 # Validate after every x epochs. Val after final epoch always runs.(default 1)
+start_val_epoch: 0 # Validate after some epochs. (default 0)
+save_period: -1 # (int) Save checkpoint every x epochs (disabled if < 1)
+cache: False  # (bool) True/ram, disk or False. Use cache for data loading
+device: 0 #int | str | list, optional) device to run on, i.e. cuda device=0 or device=0,1,2,3 or device=cpu
+workers: 8  # (int) number of worker threads for data loading (per RANK if DDP)
+project: runs # (str, optional) project name
+name: train # (str, optional) experiment name, results saved to 'project/name' directory
+exist_ok: False  # (bool) whether to overwrite existing experiment
+pretrained: False  # (bool | str) whether to use a pretrained model (bool) or a model to load weights from (str)
+optimizer: SGD  # (str) optimizer to use, choices=[SGD, Adam, Adamax, AdamW, NAdam, RAdam, RMSProp, auto]
+verbose: True  # (bool) whether to print verbose output
+seed: 0  # (int) random seed for reproducibility
+deterministic: True  # (bool) whether to enable deterministic mode
+single_cls: False  # (bool) train multi-class data as single-class
+rect: False  # (bool) rectangular training if mode='train' or rectangular validation if mode='val'
+cos_lr: False  # (bool) use cosine learning rate scheduler
+close_mosaic: 0  # (int) disable mosaic augmentation for final epochs (0 to disable). Set 0 when mosaic is disabled by default.
+resume: False  # (bool) resume training from last checkpoint
+amp: True  # (bool) Automatic Mixed Precision (AMP) training, choices=[True, False], True runs AMP check
+fraction: 1.0  # (float) dataset fraction to train on (default is 1.0, all images in train set)
+profile: False  # (bool) profile ONNX and TensorRT speeds during training for loggers
+freeze: None  # (int | list, optional) freeze first n layers, or freeze list of layer indices during training
+# Segmentation
+overlap_mask: True  # (bool) masks should overlap during training (segment train only)
+mask_ratio: 4  # (int) mask downsample ratio (segment train only)
+# Classification
+dropout: 0.0  # (float) use dropout regularization (classify train only)
+
+# Val/Test settings ----------------------------------------------------------------------------------------------------
+val: True  # (bool) validate/test during training
+split: val  # (str) dataset split to use for validation, i.e. 'val', 'test' or 'train'
+save_json: False  # (bool) save results to JSON file
+save_hybrid: False  # (bool) save hybrid version of labels (labels + additional predictions)
+conf: 0.001 # (float, optional) object confidence threshold for detection (default 0.25 predict, 0.001 val)
+iou: 0.7  # (float) intersection over union (IoU) threshold for NMS
+max_det: 300  # (int) maximum number of detections per image
+half: True  # (bool) use half precision (FP16)
+dnn: False  # (bool) use OpenCV DNN for ONNX inference
+plots: True  # (bool) save plots and images during train/val
+
+# Predict settings -----------------------------------------------------------------------------------------------------
+source:  # (str, optional) source directory for images or videos
+vid_stride: 1  # (int) video frame-rate stride
+stream_buffer: False  # (bool) buffer all streaming frames (True) or return the most recent frame (False)
+visualize: False  # (bool) visualize model features
+augment: False  # (bool) apply image augmentation to prediction sources
+agnostic_nms: False  # (bool) class-agnostic NMS
+classes:  # (int | list[int], optional) filter results by class, i.e. classes=0, or classes=[0,2,3]
+retina_masks: False  # (bool) use high-resolution segmentation masks
+
+# Visualize settings ---------------------------------------------------------------------------------------------------
+show: False  # (bool) show predicted images and videos if environment allows
+save_frames: False  # (bool) save predicted individual video frames
+save_txt: False  # (bool) save results as .txt file
+save_conf: False  # (bool) save results with confidence scores
+save_crop: False  # (bool) save cropped images with results
+show_labels: False  # (bool) show prediction labels, i.e. 'person'
+show_conf: False  # (bool) show prediction confidence, i.e. '0.99'
+show_boxes: False  # (bool) show prediction boxes
+line_width: 1 # (int, optional) line width of the bounding boxes. Scaled to image size if None.
+
+# Export settings ------------------------------------------------------------------------------------------------------
+format: onnx  # (str) format to export to, choices at https://docs.ultralytics.com/modes/export/#export-formats
+keras: False  # (bool) use Kera=s
+optimize: False  # (bool) TorchScript: optimize for mobile
+int8: False  # (bool) CoreML/TF INT8 quantization
+dynamic: False  # (bool) ONNX/TF/TensorRT: dynamic axes
+simplify: True  # (bool) ONNX: simplify model
+opset:  # (int, optional) ONNX: opset version
+workspace: 4  # (int) TensorRT: workspace size (GB)
+nms: False  # (bool) CoreML: add NMS
+
+# Hyperparameters ------------------------------------------------------------------------------------------------------
+lr0: 0.01  # (float) initial learning rate (i.e. SGD=1E-2, Adam=1E-3)
+lrf: 0.01 # (float) final learning rate (lr0 * lrf)
+momentum: 0.937  # (float) SGD momentum/Adam beta1
+weight_decay: 0.0005  # (float) optimizer weight decay 5e-4
+warmup_epochs: 3.0  # (float) warmup epochs (fractions ok)
+warmup_momentum: 0.8  # (float) warmup initial momentum
+warmup_bias_lr: 0.1  # (float) warmup initial bias lr
+box: 7.5  # (float) box loss gain
+cls: 0.5  # (float) cls loss gain (scale with pixels)
+dfl: 1.5  # (float) dfl loss gain
+nwd: False  # (bool) use Normalized Wasserstein Distance loss instead of CIoU (Wang et al. 2021)
+nwd_constant: 12.0  # (float) NWD constant C (avg bbox size of dataset; AI-TOD uses 12.0)
+gwd: False  # (bool) use Gaussian Wasserstein Distance loss (raw wasserstein, no exp) instead of CIoU (Yang et al. 2022); 与 nwd 互斥，gwd 优先
+gwd_tau: 1.0  # (float) GWD smoothness factor; loss = 1 - exp(-gwd/tau); 越小梯度越陡
+pose: 12.0  # (float) pose loss gain
+kobj: 1.0  # (float) keypoint obj loss gain
+label_smoothing: 0.0  # (float) label smoothing (fraction)
+# Coil-specific custom hooks (referenced from data/coil/hyp_*.yaml)
+coverage: False  # (bool) Coverage Loss switch (loss.py uses getattr fallback)
+coverage_weight: 0.5  # (float) Coverage Loss gain
+coverage_sigma: 20.0  # (float) Coverage Loss sigmoid sigma (pixels, imgsz-coord)
+looseness_alpha: 0.0  # (float) Bayesian prior: 宽松 GT bbox loss 权重衰减系数；0.0=关闭（v4 行为），>0=启用
+looseness_target_area: 400.0  # (float) 估计真实目标面积（像素²），20×20 px tip 默认 400
+paaug: none  # (str) PA-Aug 物理感知增强组件：none/motion/reflection/occlusion/noise，默认 none=关闭
+bbox_shrink_min: 1.0  # (float) bbox_random_shrink lower bound (1.0 = off)
+bbox_shrink_max: 1.0  # (float) bbox_random_shrink upper bound
+bbox_shrink_p: 1.0  # (float) bbox_random_shrink probability
+bbox_noise: False  # (bool) NBBoxNoise: 训练时给 GT bbox 加 [scale, shift] 噪声当 augmentation (NBBOX 2409.09424)
+bbox_noise_scale: '0.5,1.5'  # (str) NBBoxNoise 尺度抖动范围 (字符串解析为 (min, max))
+bbox_noise_shift: 0.1  # (float) NBBoxNoise 平移抖动距离 (相对 bbox size)
+bbox_noise_p: 0.5  # (float) NBBoxNoise 应用概率
+
+# === Specular Highlight Suppression (v9) ===
+spec_suppress: False  # (bool) 在 backbone 末层 (SPPF) 后插入 SpecSuppress, 抑制钢卷头尾反光导致的 FN
+spec_recon_weight: 0.1  # (float) SpecSuppress 重建损失权重 (解耦于 box/cls/dfl, 默认 0.1)
+multi_scale: 0.0  # (float) multi-scale rect range fraction (0.0 = off)
+nbs: 64  # (int) nominal batch size
+hsv_h: 0.015  # image HSV-Hue augmentation (fraction)
+hsv_s: 0.7  # image HSV-Saturation augmentation (fraction)
+hsv_v: 0.4  # image HSV-Value augmentation (fraction)
+degrees: 0.0  # image rotation (+/- deg)
+translate: 0.1  # image translation (+/- fraction)
+scale: 0.5  # image scale (+/- gain)
+shear: 0.0  # image shear (+/- deg)
+perspective: 0.0  # image perspective (+/- fraction), range 0-0.001
+flipud: 0.0  # image flip up-down (probability)
+fliplr: 0.5  # image flip left-right (probability)
+mosaic: 0.0  # image mosaic (probability). Disabled: dataset has at most 1 instance per image, mosaic would break this single-instance prior.
+mixup: 0.0  # image mixup (probability)
+copy_paste: 0.0  # segment copy-paste (probability)
+
+# Custom config.yaml ---------------------------------------------------------------------------------------------------
+cfg:  # (str, optional) for overriding defaults.yaml
+
+# Tracker settings ------------------------------------------------------------------------------------------------------
+tracker: botsort.yaml  # (str) tracker type, choices=[botsort.yaml, bytetrack.yaml]

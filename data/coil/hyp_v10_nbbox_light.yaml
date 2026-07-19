@@ -1,0 +1,56 @@
+# v10 NBBoxNoise 轻量版（基于 v8 NWD weak aug, bbox 噪声强度降低）
+# 改动日期: 2026-07-11
+# 目的: 复现路径 = v8 NWD weak aug (mAP50=0.869 + TTA F1=0.929) → v10 + 轻量 NBBoxNoise
+#       修复 v9 NBBoxNoise (scale=0.5,1.5/shift=0.1/p=0.5) 导致 mAP=0.557 的过强抖动
+# 唯一变量: bbox_noise=true (scale/shift/p 由 default.yaml 给出轻量值)
+#
+# 轻量参数 (default.yaml 已修改, 此处仅开关):
+#   bbox_noise_scale: '0.8,1.2'  # 尺度抖动 ±20% (v9 是 ±50%)
+#   bbox_noise_shift: 0.05        # 平移抖动 5% size (v9 是 10%)
+#   bbox_noise_p: 0.3             # 应用概率 30% (v9 是 50%)
+
+# === 几何变换（与 v8 NWD v1_repro 一致, 弱 aug）===
+degrees: 0.0
+translate: 0.0
+scale: 0.0
+shear: 0.0
+perspective: 0.0
+flipud: 0.0
+fliplr: 0.5
+
+# === 颜色空间 ===
+hsv_h: 0.015
+hsv_s: 0.7
+hsv_v: 0.4
+
+# === 组合增强（弱 aug）===
+mosaic: 0.0
+mixup: 0.0
+copy_paste: 0.0
+
+# === 损失/正则 ===
+box: 1.5
+cls: 0.5
+dfl: 1.5
+label_smoothing: 0.0
+
+# === bbox_random_shrink（关闭, 与 v8 NWD 一致）===
+bbox_shrink_min: 1.0
+bbox_shrink_max: 1.0
+bbox_shrink_p: 0.0
+
+# === multi_scale（关闭）===
+multi_scale: 0.0
+
+# === NWD ===
+nwd: true
+nwd_constant: 12.0
+
+# === Coverage（关闭）===
+coverage: false
+coverage_weight: 0.5
+coverage_sigma: 20.0
+
+# === 🆕 NBBoxNoise 轻量版 (本次实验唯一变量) ===
+bbox_noise: true
+# scale/shift/p 由 default.yaml 注入 (轻量版: '0.8,1.2' / 0.05 / 0.3)

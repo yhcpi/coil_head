@@ -1005,6 +1005,14 @@ def v8_transforms(dataset, imgsz, hyp, stretch=False):
     paaug = make_paaug(getattr(hyp, 'paaug', 'none'))
     if paaug is not None:
         transforms.append(paaug)
+    # NBBoxNoise 总开关：默认 False → 不插入 Compose（保持基线纯净）；启用见类注释
+    if bool(getattr(hyp, 'bbox_noise', False)):
+        _nbbox_scale = tuple(float(x) for x in str(getattr(hyp, 'bbox_noise_scale', '0.5,1.5')).split(','))
+        transforms.append(NBBoxNoise(
+            scale_min=_nbbox_scale[0],
+            scale_max=_nbbox_scale[1],
+            shift_ratio=getattr(hyp, 'bbox_noise_shift', 0.1),
+            p=getattr(hyp, 'bbox_noise_p', 0.5)))
     return Compose(transforms)
 
 
@@ -1278,3 +1286,81 @@ class RandomScaleRect:
 
     def __repr__(self):
         return f'RandomScaleRect(scale_range=±{self.scale_range})'
+
+
+class NBBoxNoise:
+    """对每个 GT bbox 加 NBBOX (Noise-BBox) 式抖动，模拟"宽容标注也能定位目标中心"。
+
+    论文思路 (arXiv 2409.09424 NBBOX)：训练时给 GT bbox 加抖动 augmentation，让模型
+    学到"宽松标注里也能精确定位 tip"。钢卷头尾检测：标注是 labelme 外接矩形，本身有
+    噪声；用 NBBoxNoise 把这种"标注噪声"显式注入训练样本。
+
+    抖动方式（per-bbox 独立采样）：
+      - 尺度: s ~ Uniform(scale_min, scale_max)  → 直接乘到 bbox 的宽高上
+      - 平移: (dx, dy) ~ Uniform(-shift_ratio, +shift_ratio) * (w, h)
+
+    Args:
+        scale_min: 最小尺度系数（论文 NBBOX 默认 0.5）
+        scale_max: 最大尺度系数（论文 NBBOX 默认 1.5）
+        shift_ratio: 平移距离占 bbox 尺寸的比例（论文默认 0.1 = ±10% * size）
+        p: 应用的概率（论文默认 0.5）
+
+    启用方法（hyp_aug.yaml）：
+        bbox_noise: true            # 总开关（默认 False = 关闭 → 现有基线不受影响）
+        bbox_noise_scale: '0.5,1.5' # 尺度抖动范围（字符串解析为 (min, max)）
+        bbox_noise_shift: 0.1       # 平移抖动距离占比
+        bbox_noise_p: 0.5           # 应用概率
+
+    设计要点：
+      - 不修改 loss 函数，纯数据加载侧 augmentation，零训练成本
+      - 与 BBoxRandomShrink 不冲突：后者只缩放宽高（保持中心），前者同时加平移
+      - 默认 false，关闭时 v8_transforms 不会插入该 transform，对现有基线 0 影响
+    """
+
+    def __init__(self, scale_min=0.5, scale_max=1.5, shift_ratio=0.1, p=0.5):
+        self.scale_min = float(scale_min)
+        self.scale_max = float(scale_max)
+        self.shift_ratio = float(shift_ratio)
+        self.p = float(p)
+
+    def __call__(self, labels):
+        """labels: dict 含 'instances'。in-place 修改 labels['instances']._bboxes.bboxes。"""
+        import random
+        if random.random() > self.p:
+            return labels
+        # no-op 短路：所有扰动关闭
+        if self.shift_ratio == 0.0 and self.scale_min == 1.0 and self.scale_max == 1.0:
+            return labels
+        if 'instances' not in labels or len(labels['instances']) == 0:
+            return labels
+        bboxes = labels['instances'].bboxes  # (N, 4) xyxy 像素
+        if len(bboxes) == 0:
+            return labels
+        n = len(bboxes)
+        if not torch.is_tensor(bboxes):
+            bboxes = torch.as_tensor(bboxes, dtype=torch.float32)
+        # per-bbox 独立的尺度抖动 (论文 NBBOX 的关键)
+        s = torch.empty(n).uniform_(self.scale_min, self.scale_max)
+        cx = (bboxes[:, 0] + bboxes[:, 2]) / 2
+        cy = (bboxes[:, 1] + bboxes[:, 3]) / 2
+        w = (bboxes[:, 2] - bboxes[:, 0]) * s
+        h = (bboxes[:, 3] - bboxes[:, 1]) * s
+        # per-bbbox 独立的平移抖动（dx/dy 是基于原 bbox 尺寸，不是缩放后的）
+        dx = torch.empty(n).uniform_(-self.shift_ratio, self.shift_ratio) * (bboxes[:, 2] - bboxes[:, 0])
+        dy = torch.empty(n).uniform_(-self.shift_ratio, self.shift_ratio) * (bboxes[:, 3] - bboxes[:, 1])
+        new_bboxes = torch.stack([
+            cx + dx - w / 2,
+            cy + dy - h / 2,
+            cx + dx + w / 2,
+            cy + dy + h / 2,
+        ], dim=1)
+        # 与 BBoxRandomShrink 同样的写入路径（绕过 Instances.bboxes read-only）
+        inst = labels['instances']
+        inst._bboxes.bboxes = new_bboxes
+        if hasattr(inst, 'segments') and len(inst.segments):
+            inst.segments = []
+        return labels
+
+    def __repr__(self):
+        return (f'NBBoxNoise(scale=({self.scale_min},{self.scale_max}), '
+                f'shift_ratio={self.shift_ratio}, p={self.p})')

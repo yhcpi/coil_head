@@ -325,6 +325,12 @@ class v8DetectionLoss:
 
         self.use_dfl = m.reg_max > 1
 
+        # Specular highlight suppression recon loss (创新点 v9，默认关闭)
+        # 由 train.py 在 backbone 出口前向 hook 注入; spec_suppress=True 时启用
+        self.spec_recon_weight = float(getattr(h, 'spec_recon_weight', 0.0))
+        # 保存 model 引用, 让 __call__ 能找到 SpecSuppress 子模块
+        self._parent_model_ref = model
+
         self.assigner = TaskAlignedAssigner(topk=10, num_classes=self.nc, alpha=0.5, beta=6.0)
         # Pass through NWD switch from hyperparameters (set via `model.args.nwd`)
         nwd_on = bool(getattr(h, 'nwd', False))
@@ -423,7 +429,20 @@ class v8DetectionLoss:
         loss[1] *= self.hyp.cls  # cls gain
         loss[2] *= self.hyp.dfl  # dfl gain
 
-        return loss.sum() * batch_size, loss.detach()  # loss(box, cls, dfl)
+        # Specular highlight suppression recon loss (创新点 v9, 自监督)
+        # 在 train.py 的 forward_pre_hook 中, 把原图注入到 SpecSuppress.set_image_ctx;
+        # SpecSuppress.forward 计算 recon loss 存到 _last_recon_loss; 这里取出叠加
+        total = loss.sum()
+        if self.spec_recon_weight > 0:
+            parent = getattr(self, '_parent_model_ref', None)
+            if parent is not None:
+                for sub in parent.modules():
+                    if isinstance(sub, torch.nn.Module) and sub.__class__.__name__ == 'SpecSuppress':
+                        recon = getattr(sub, '_last_recon_loss', None)
+                        if recon is not None and torch.is_tensor(recon):
+                            total = total + self.spec_recon_weight * recon
+                        break
+        return total * batch_size, loss.detach()  # loss(box, cls, dfl)
 
 
 class v8SegmentationLoss(v8DetectionLoss):

@@ -140,9 +140,26 @@ def wbf_merge(boxes_list, scores_list, iou_thresh=0.55, weights=None,
     return np.array(merged_boxes), np.array(merged_scores)
 
 
-def run_tta_custom(model, val_imgs, gt_dir, imgsz, conf, max_det):
-    """自定义 TTA：3 路推理（original / 1.25x scale / hflip）→ WBF 合并"""
-    all_raw_preds = []  # 整个 val 的合并后预测
+def wbf_from_candidates(candidates, wbf_iou):
+    """对已有候选框做 WBF 合并，返回按 conf 降序的 (conf, x1, y1, x2, y2, cls) 列表"""
+    if not candidates:
+        return []
+    boxes = np.array([(r[1], r[2], r[3], r[4]) for r in candidates])
+    scores = np.array([r[0] for r in candidates])
+    merged_boxes, merged_scores = wbf_merge([boxes], [scores], iou_thresh=wbf_iou)
+    merged = [(float(s), float(b[0]), float(b[1]), float(b[2]), float(b[3]),
+               candidates[0][5])
+              for b, s in zip(merged_boxes, merged_scores)]
+    return sorted(merged, key=lambda x: -x[0])
+
+
+def run_tta_custom(model, val_imgs, gt_dir, imgsz, conf, max_det, wbf_iou=0.55):
+    """自定义 TTA：3 路推理（original / 1.25x scale / hflip）→ WBF 合并
+
+    Returns: (all_raw_preds, all_candidates) — 后者是 WBF 前的候选框，供离线 WBF-IoU sweep
+    """
+    all_raw_preds = []   # 整个 val 的合并后预测
+    all_candidates = []  # 每张图 WBF 前的原始候选
 
     for img_idx, img_p in enumerate(val_imgs):
         W, H = Image.open(img_p).size
@@ -158,23 +175,10 @@ def run_tta_custom(model, val_imgs, gt_dir, imgsz, conf, max_det):
 
         # 合并所有候选
         candidates = p1 + p2 + p3
+        all_candidates.append(candidates)
+        all_raw_preds.append(wbf_from_candidates(candidates, wbf_iou))
 
-        # WBF 合并 (IoU 阈值 0.55)
-        if candidates:
-            boxes = np.array([(r[1], r[2], r[3], r[4]) for r in candidates])
-            scores = np.array([r[0] for r in candidates])
-            merged_boxes, merged_scores = wbf_merge([boxes], [scores], iou_thresh=0.55)
-            # 转回 (conf, x1, y1, x2, y2, cls) 格式
-            merged = [(float(s), float(b[0]), float(b[1]), float(b[2]), float(b[3]),
-                       candidates[0][5])
-                      for b, s in zip(merged_boxes, merged_scores)]
-            # 按 conf 降序
-            merged = sorted(merged, key=lambda x: -x[0])
-            all_raw_preds.append(merged)
-        else:
-            all_raw_preds.append([])
-
-    return all_raw_preds
+    return all_raw_preds, all_candidates
 
 
 def run_tta_builtin(model, val_imgs, conf, max_det):
@@ -271,6 +275,8 @@ def main():
     p.add_argument('--max_det', type=int, default=300)
     p.add_argument('--mode', default='all', choices=['baseline', 'builtin', 'custom', 'all'],
                    help='跑哪些配置；all=三个都跑并对比')
+    p.add_argument('--wbf_iou', type=float, default=0.55,
+                   help='custom TTA 的 WBF 合并 IoU 阈值')
     p.add_argument('--save_json', default='/home/pi/projects/hyperyolo/runs/coil_loss_ablation/tta_predictions.json',
                    help='保存 TTA 合并后预测的 JSON 路径')
     args = p.parse_args()
@@ -322,8 +328,9 @@ def main():
         print(f'[#3] TTA custom (3 路: scale=[1.0, 1.25] × flip=[None, lr] → WBF 合并)')
         print(f'{"#" * 80}')
         t0 = time.time()
-        custom_preds = run_tta_custom(model, val_imgs, gt_dir, args.imgsz,
-                                      args.conf, args.max_det)
+        custom_preds, custom_candidates = run_tta_custom(
+            model, val_imgs, gt_dir, args.imgsz, args.conf, args.max_det,
+            wbf_iou=args.wbf_iou)
         print(f'  推理耗时: {time.time()-t0:.1f}s')
         custom_metrics = eval_predictions(custom_preds, gts_by_image, 'TTA-custom')
 
@@ -345,21 +352,24 @@ def main():
                 fn = m[key]['fn']
                 print(f'{name:<25} {rec:>8.4f} {prec:>10.4f} {f1:>8.4f} {fn:>4}')
 
-        # 保存 TTA-custom 预测
-        if custom_preds:
-            Path(args.save_json).parent.mkdir(parents=True, exist_ok=True)
-            save_data = {
-                'config': 'custom TTA: scale=[1.0, 1.25] × flip=[None, lr] → WBF merge',
-                'weights': str(args.weights),
-                'predictions': [
-                    [{'conf': r[0], 'x1': r[1], 'y1': r[2], 'x2': r[3], 'y2': r[4], 'cls': r[5]}
-                     for r in raw]
-                    for raw in custom_preds
-                ],
-            }
-            with open(args.save_json, 'w') as f:
-                json.dump(save_data, f, indent=2, ensure_ascii=False)
-            print(f'\n[保存] TTA-custom 预测已写入: {args.save_json}')
+        # 保存所有模式预测 + custom WBF 前候选（供离线 conf/WBF-IoU sweep）
+        def dump(raw):
+            return [[{'conf': r[0], 'x1': r[1], 'y1': r[2], 'x2': r[3], 'y2': r[4],
+                      'cls': r[5]} for r in img] for img in (raw or [])]
+
+        Path(args.save_json).parent.mkdir(parents=True, exist_ok=True)
+        save_data = {
+            'config': f'custom TTA: scale=[1.0,1.25]×flip=[None,lr] → WBF(iou={args.wbf_iou})',
+            'weights': str(args.weights),
+            'wbf_iou': args.wbf_iou,
+            'baseline': dump(baseline_preds),
+            'builtin': dump(builtin_preds),
+            'custom': dump(custom_preds),
+            'custom_candidates': dump(custom_candidates),
+        }
+        with open(args.save_json, 'w') as f:
+            json.dump(save_data, f, ensure_ascii=False, default=float)
+        print(f'\n[保存] 全模式预测 + candidates 已写入: {args.save_json}')
 
 
 if __name__ == '__main__':

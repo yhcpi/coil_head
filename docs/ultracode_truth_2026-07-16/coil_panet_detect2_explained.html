@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Coil-PANet (Detect2 nl=2) 创新点深度解析</title>
+<style>
+  :root {
+    --bg: #fafafa;
+    --panel: #ffffff;
+    --border: #e5e7eb;
+    --text: #1f2937;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --good: #059669;
+    --bad: #dc2626;
+    --warn: #d97706;
+    --code-bg: #f3f4f6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    margin: 0;
+    padding: 2rem;
+  }
+  .container { max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 2.2rem; margin: 0 0 0.5rem; color: var(--accent); border-bottom: 3px solid var(--accent); padding-bottom: 0.5rem; }
+  h2 { font-size: 1.6rem; margin-top: 2.5rem; color: var(--accent); border-left: 4px solid var(--accent); padding-left: 0.8rem; }
+  h3 { font-size: 1.25rem; margin-top: 1.8rem; color: #374151; }
+  p { margin: 0.8rem 0; }
+  .meta { color: var(--muted); font-size: 0.95rem; margin-bottom: 2rem; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin: 1.2rem 0;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .panel.good { border-left: 5px solid var(--good); }
+  .panel.bad { border-left: 5px solid var(--bad); }
+  .panel.warn { border-left: 5px solid var(--warn); }
+  .panel.info { border-left: 5px solid var(--accent); }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem;
+    overflow-x: auto;
+    font-size: 0.88rem;
+    line-height: 1.5;
+  }
+  code { font-family: "SF Mono", Menlo, Consolas, monospace; background: var(--code-bg); padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.88em; }
+  pre code { background: transparent; padding: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+  th, td { padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--border); text-align: left; }
+  th { background: #f9fafb; font-weight: 600; }
+  tr:hover { background: #f9fafb; }
+  .compare {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    margin: 1.5rem 0;
+  }
+  .compare > div {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.2rem;
+  }
+  .compare h4 { margin: 0 0 0.8rem; color: var(--accent); }
+  .svg-wrap {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    text-align: center;
+  }
+  .svg-wrap svg { max-width: 100%; height: auto; }
+  ul, ol { margin: 0.5rem 0; padding-left: 1.5rem; }
+  li { margin: 0.3rem 0; }
+  .badge {
+    display: inline-block;
+    padding: 0.15rem 0.6rem;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin: 0 0.2rem;
+  }
+  .badge.good { background: #d1fae5; color: #065f46; }
+  .badge.bad { background: #fee2e2; color: #991b1b; }
+  .badge.warn { background: #fef3c7; color: #92400e; }
+  .badge.info { background: #dbeafe; color: #1e40af; }
+  .toc {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem 1.5rem;
+    margin: 1.5rem 0;
+  }
+  .toc h3 { margin-top: 0; }
+  .toc ul { list-style: none; padding-left: 0; }
+  .toc li { padding: 0.25rem 0; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .metric { font-weight: 600; font-size: 1.1em; }
+  .metric.good { color: var(--good); }
+  .metric.bad { color: var(--bad); }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Coil-PANet (Detect2 nl=2) 创新点深度解析</h1>
+<p class="meta">
+  报告日期：2026-07-16 &nbsp;|&nbsp;
+  项目：Hyper-YOLO + 钢卷头尾小目标检测 &nbsp;|&nbsp;
+  实验：ulracode B (baseline / DySample×2 / Coil-PANet) &nbsp;|&nbsp;
+  结论：<span class="badge bad">本次实验失败</span> <span class="badge info">架构本身有潜力</span>
+</p>
+
+<div class="toc">
+  <h3>目录</h3>
+  <ul>
+    <li><a href="#tldr">1. 一句话总结</a></li>
+    <li><a href="#background">2. 背景知识：YOLO Detect Head 是什么</a></li>
+    <li><a href="#innovation">3. 创新点本身：Detect2 nl=2 是什么</a></li>
+    <li><a href="#principle">4. 原理详解：为什么 P5 该删</a></li>
+    <li><a href="#code">5. 代码改动：Detect2 子类 + panet yaml</a></li>
+    <li><a href="#experiment">6. 实验结果与失败根因</a></li>
+    <li><a href="#root-cause">7. 失败根因深度剖析（4 个层次）</a></li>
+    <li><a href="#improvements">8. 改进方向（5 个具体方案）</a></li>
+    <li><a href="#summary">9. 总结与展望</a></li>
+  </ul>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="tldr">1. 一句话总结</h2>
+<div class="panel info">
+  <p><strong>创新点核心</strong>：标准 YOLO Detect head 是 3 尺度输出（P3/P4/P5 分别检测小/中/大目标）。Detect2 nl=2 把 P5 检测头<strong>删掉</strong>，只保留 P3+P4 两个尺度。</p>
+  <p><strong>假设</strong>：钢卷头尾是固定大小的小目标（50×80 px），不需要大目标检测尺度，删除 P5 能减少参数 + 强制模型专注小目标。</p>
+  <p><strong>本次结果</strong>：学术 mAP50 = <span class="metric bad">0.6332</span>（vs baseline 0.8888，<strong>-25.6 pp</strong>），部署 F1 = 0.7407（vs v18.3 0.9286，<strong>-18.8 pp</strong>）。</p>
+  <p><strong>失败根因</strong>：<span class="badge bad">DFL 投影坍缩（最致命）</span> <span class="badge warn">P5 冗余互助缺失</span> <span class="badge warn">数据规模硬约束</span> <span class="badge warn">P5 路径半失效</span> <span class="badge bad">TTA 不兼容</span></p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="background">2. 背景知识：YOLO Detect Head 是什么</h2>
+
+<h3>2.1 标准 YOLO 检测头的多尺度结构</h3>
+<p>YOLOv8 的 Detect head 在 3 个不同尺度的特征图上预测目标，对应不同大小的目标：</p>
+
+<div class="svg-wrap">
+<svg viewBox="0 0 900 360" xmlns="http://www.w3.org/2000/svg" style="font-family: sans-serif;">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#374151"/>
+    </marker>
+  </defs>
+
+  <text x="450" y="25" font-size="20" font-weight="bold" text-anchor="middle">标准 YOLOv8 Detect Head: 3 尺度输出</text>
+
+  <!-- Backbone -->
+  <rect x="20" y="80" width="120" height="200" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
+  <text x="80" y="105" font-size="13" font-weight="bold" text-anchor="middle">Backbone</text>
+  <text x="80" y="125" font-size="11" text-anchor="middle">(MANet × N)</text>
+  <text x="80" y="148" font-size="10" text-anchor="middle" fill="#6b7280">↓stride 2 多次</text>
+  <line x1="80" y1="170" x2="80" y2="270" stroke="#6b7280" stroke-width="1" stroke-dasharray="3,3"/>
+  <text x="80" y="200" font-size="9" text-anchor="middle">N3 (8x↓)</text>
+  <text x="80" y="220" font-size="9" text-anchor="middle">N4 (16x↓)</text>
+  <text x="80" y="240" font-size="9" text-anchor="middle">N5 (32x↓)</text>
+
+  <!-- N3 -->
+  <rect x="200" y="80" width="120" height="60" rx="8" fill="#d1fae5" stroke="#059669" stroke-width="2"/>
+  <text x="260" y="105" font-size="12" font-weight="bold" text-anchor="middle">N3</text>
+  <text x="260" y="125" font-size="10" text-anchor="middle">stride=8</text>
+  <text x="260" y="138" font-size="9" text-anchor="middle" fill="#065f46">~128×128 (1024输入)</text>
+
+  <!-- N4 -->
+  <rect x="200" y="160" width="120" height="60" rx="8" fill="#d1fae5" stroke="#059669" stroke-width="2"/>
+  <text x="260" y="185" font-size="12" font-weight="bold" text-anchor="middle">N4</text>
+  <text x="260" y="205" font-size="10" text-anchor="middle">stride=16</text>
+  <text x="260" y="218" font-size="9" text-anchor="middle" fill="#065f46">~64×64</text>
+
+  <!-- N5 -->
+  <rect x="200" y="240" width="120" height="60" rx="8" fill="#fee2e2" stroke="#dc2626" stroke-width="2"/>
+  <text x="260" y="265" font-size="12" font-weight="bold" text-anchor="middle">N5</text>
+  <text x="260" y="285" font-size="10" text-anchor="middle">stride=32</text>
+  <text x="260" y="298" font-size="9" text-anchor="middle" fill="#991b1b">~32×32 (大目标)</text>
+
+  <!-- Detect head box -->
+  <rect x="380" y="80" width="120" height="220" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+  <text x="440" y="105" font-size="13" font-weight="bold" text-anchor="middle">Detect Head</text>
+  <text x="440" y="125" font-size="11" text-anchor="middle">(nl=3)</text>
+
+  <circle cx="440" cy="160" r="20" fill="#fff" stroke="#d97706" stroke-width="2"/>
+  <text x="440" y="165" font-size="9" text-anchor="middle">cv2+cv3</text>
+  <text x="440" y="200" font-size="9" text-anchor="middle">P3 检测</text>
+
+  <circle cx="440" cy="220" r="20" fill="#fff" stroke="#d97706" stroke-width="2"/>
+  <text x="440" y="225" font-size="9" text-anchor="middle">cv2+cv3</text>
+  <text x="440" y="260" font-size="9" text-anchor="middle">P4 检测</text>
+
+  <circle cx="440" cy="280" r="20" fill="#fff" stroke="#d97706" stroke-width="2"/>
+  <text x="440" y="285" font-size="9" text-anchor="middle">cv2+cv3</text>
+  <text x="440" y="320" font-size="9" text-anchor="middle">P5 检测</text>
+
+  <!-- Arrows -->
+  <line x1="320" y1="110" x2="380" y2="155" stroke="#374151" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="320" y1="190" x2="380" y2="215" stroke="#374151" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="320" y1="270" x2="380" y2="275" stroke="#374151" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Right side: targets -->
+  <rect x="560" y="80" width="120" height="60" rx="8" fill="#f3f4f6" stroke="#9ca3af" stroke-width="2"/>
+  <text x="620" y="105" font-size="12" font-weight="bold" text-anchor="middle">P3 检出</text>
+  <text x="620" y="125" font-size="10" text-anchor="middle" fill="#6b7280">小目标</text>
+  <text x="620" y="138" font-size="9" text-anchor="middle" fill="#6b7280">16-32 px</text>
+
+  <rect x="560" y="160" width="120" height="60" rx="8" fill="#f3f4f6" stroke="#9ca3af" stroke-width="2"/>
+  <text x="620" y="185" font-size="12" font-weight="bold" text-anchor="middle">P4 检出</text>
+  <text x="620" y="205" font-size="10" text-anchor="middle" fill="#6b7280">中目标</text>
+  <text x="620" y="218" font-size="9" text-anchor="middle" fill="#6b7280">32-64 px</text>
+
+  <rect x="560" y="240" width="120" height="60" rx="8" fill="#f3f4f6" stroke="#9ca3af" stroke-width="2"/>
+  <text x="620" y="265" font-size="12" font-weight="bold" text-anchor="middle">P5 检出</text>
+  <text x="620" y="285" font-size="10" text-anchor="middle" fill="#6b7280">大目标</text>
+  <text x="620" y="298" font-size="9" text-anchor="middle" fill="#6b7280">64+ px</text>
+
+  <line x1="500" y1="155" x2="560" y2="115" stroke="#374151" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="500" y1="215" x2="560" y2="195" stroke="#374151" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="500" y1="275" x2="560" y2="275" stroke="#374151" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Target labels -->
+  <text x="80" y="350" font-size="11" font-style="italic" text-anchor="middle" fill="#6b7280">钢卷头尾: 50×80 px (中等)</text>
+  <text x="620" y="350" font-size="11" font-style="italic" text-anchor="middle" fill="#d97706">→ P3+P4 已足够覆盖，P5 是冗余</text>
+</svg>
+</div>
+
+<h3>2.2 Detect head 的核心结构</h3>
+<p>每个检测尺度有 <code>cv2</code>（回归分支，4×reg_max=64 通道输出 DFL 距离）+ <code>cv3</code>（分类分支，nc=1 通道输出 sigmoid 概率）：</p>
+<pre><code>class Detect(nn.Module):
+    def __init__(self, nc=80, ch=()):
+        self.nc = nc                    # 类别数（钢卷场景=1）
+        self.nl = len(ch)               # 检测层数（标准=3）
+        self.reg_max = 16               # DFL 通道
+        self.no = nc + reg_max * 4      # 每锚点输出维度（= 65）
+
+        # 每个尺度独立一组 cv2/cv3
+        self.cv2 = ModuleList(...)      # 回归: Conv → Conv → Conv2d(4*16)
+        self.cv3 = ModuleList(...)      # 分类: Conv → Conv → Conv2d(nc)
+        self.dfl = DFL(reg_max)         # 分布式焦点损失 → bbox</code></pre>
+
+<p><strong>参数开销</strong>：每尺度约 <strong>250K 参数</strong>（3 个 Conv × ~83K）。3 尺度总开销 <strong>~750K</strong>，占总模型的 <strong>19%</strong>（baseline 总参数 3.95M）。</p>
+
+<!-- ============================================================ -->
+<h2 id="innovation">3. 创新点本身：Detect2 nl=2 是什么</h2>
+
+<h3>3.1 一句话定义</h3>
+<div class="panel warn">
+  <p><strong>Detect2 nl=2 = 继承标准 Detect，但强制只检测 2 个尺度（P3 + P4），P5 检测头被删除。</strong></p>
+</div>
+
+<h3>3.2 与标准 Detect 的差异对比</h3>
+<table>
+<thead><tr><th>项目</th><th>标准 Detect (baseline)</th><th>Detect2 (Coil-PANet)</th></tr></thead>
+<tbody>
+<tr><td>检测层数 (nl)</td><td>3</td><td><strong>2</strong></td></tr>
+<tr><td>检测尺度</td><td>P3 + P4 + <strong>P5</strong></td><td>P3 + P4（<strong>P5 dropped</strong>）</td></tr>
+<tr><td>stride</td><td>[8, 16, 32]</td><td>[8, 16]</td></tr>
+<tr><td>cv2/cv3 ModuleList 长度</td><td>3</td><td><strong>2</strong></td></tr>
+<tr><td>总参数</td><td>3,952,867</td><td><strong>3,579,490</strong> (-373K, -9.4%)</td></tr>
+<tr><td>backbone</td><td>完整 MANet × N</td><td>完整不变</td></tr>
+<tr><td>neck</td><td>完整 FPN+PAN</td><td>完整不变（N5 仍生成但不消费）</td></tr>
+<tr><td>理论参数效率</td><td>100%</td><td><strong>略高（-9.4%）</strong></td></tr>
+<tr><td>实际推理速度</td><td>~12 ms/image</td><td>~10 ms/image (略快但无显著差异)</td></tr>
+</tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="principle">4. 原理详解：为什么 P5 该删（架构假设）</h2>
+
+<div class="panel info">
+  <h3>核心假设</h3>
+  <p>钢卷头尾目标 <strong>50×80 像素</strong>（在 2560×1440 原图上），对应在 1024×576 letterbox 后约 <strong>20×32 像素</strong>。</p>
+  <ul>
+    <li>在 P3 (stride=8) 特征图上：目标 = <strong>2.5×4 像素</strong> → 占 10 个 cell，<strong>可检出</strong></li>
+    <li>在 P4 (stride=16) 特征图上：目标 = <strong>1.25×2 像素</strong> → 占 2.5 个 cell，<strong>勉强可检出</strong></li>
+    <li>在 P5 (stride=32) 特征图上：目标 = <strong>0.6×1 像素</strong> → 占 0.6 个 cell，<strong>下采样过度，无法检出</strong></li>
+  </ul>
+  <p><strong>结论</strong>：P5 对钢卷场景是<strong>冗余输出</strong>。删除 P5 检测头能减少参数 + 避免模型被"分散注意力"到不可检出的大目标。</p>
+</div>
+
+<div class="svg-wrap">
+<svg viewBox="0 0 900 380" xmlns="http://www.w3.org/2000/svg" style="font-family: sans-serif;">
+  <text x="450" y="25" font-size="20" font-weight="bold" text-anchor="middle">Coil-PANet (Detect2 nl=2) 架构</text>
+
+  <!-- Input -->
+  <rect x="20" y="120" width="80" height="60" rx="4" fill="#f3f4f6" stroke="#9ca3af"/>
+  <text x="60" y="148" font-size="11" font-weight="bold" text-anchor="middle">输入</text>
+  <text x="60" y="165" font-size="9" text-anchor="middle">1024×576</text>
+
+  <!-- Backbone -->
+  <rect x="140" y="100" width="100" height="100" rx="4" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
+  <text x="190" y="125" font-size="11" font-weight="bold" text-anchor="middle">Backbone</text>
+  <text x="190" y="143" font-size="9" text-anchor="middle">MANet×N</text>
+  <text x="190" y="158" font-size="9" text-anchor="middle">(stride↓2 多次)</text>
+
+  <!-- N3 N4 N5 -->
+  <rect x="290" y="80" width="80" height="40" rx="4" fill="#d1fae5" stroke="#059669"/>
+  <text x="330" y="100" font-size="10" font-weight="bold" text-anchor="middle">N3 (stride=8)</text>
+  <text x="330" y="115" font-size="8" text-anchor="middle">~128×72</text>
+
+  <rect x="290" y="135" width="80" height="40" rx="4" fill="#d1fae5" stroke="#059669"/>
+  <text x="330" y="155" font-size="10" font-weight="bold" text-anchor="middle">N4 (stride=16)</text>
+  <text x="330" y="170" font-size="8" text-anchor="middle">~64×36</text>
+
+  <rect x="290" y="190" width="80" height="40" rx="4" fill="#fef3c7" stroke="#d97706" stroke-dasharray="5,3"/>
+  <text x="330" y="210" font-size="10" font-weight="bold" text-anchor="middle">N5 (stride=32)</text>
+  <text x="330" y="225" font-size="8" text-anchor="middle">~32×18</text>
+  <text x="330" y="245" font-size="8" text-anchor="middle" fill="#d97706">(neck 仍生成)</text>
+
+  <!-- Detect2 box (nl=2) -->
+  <rect x="430" y="80" width="130" height="155" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+  <text x="495" y="100" font-size="13" font-weight="bold" text-anchor="middle">Detect2 (nl=2)</text>
+  <text x="495" y="118" font-size="9" text-anchor="middle" fill="#92400e">继承 Detect 但只取前 2 尺度</text>
+
+  <circle cx="465" cy="150" r="14" fill="#fff" stroke="#059669" stroke-width="2"/>
+  <text x="465" y="153" font-size="9" text-anchor="middle">cv2+cv3</text>
+  <text x="540" y="155" font-size="9" fill="#059669">→ P3</text>
+
+  <circle cx="465" cy="200" r="14" fill="#fff" stroke="#059669" stroke-width="2"/>
+  <text x="465" y="203" font-size="9" text-anchor="middle">cv2+cv3</text>
+  <text x="540" y="205" font-size="9" fill="#059669">→ P4</text>
+
+  <circle cx="465" cy="225" r="14" fill="#fff" stroke="#dc2626" stroke-width="2" stroke-dasharray="3,2" opacity="0.5"/>
+  <text x="465" y="228" font-size="9" text-anchor="middle" fill="#9ca3af" opacity="0.5">cv2+cv3</text>
+  <line x1="450" y1="225" x2="480" y2="225" stroke="#dc2626" stroke-width="2"/>
+  <text x="555" y="228" font-size="9" fill="#dc2626">✗ P5 dropped</text>
+
+  <!-- Outputs -->
+  <rect x="620" y="135" width="100" height="40" rx="4" fill="#dbeafe" stroke="#2563eb"/>
+  <text x="670" y="155" font-size="10" font-weight="bold" text-anchor="middle">输出 1</text>
+  <text x="670" y="170" font-size="8" text-anchor="middle">P3 检测</text>
+
+  <rect x="620" y="195" width="100" height="40" rx="4" fill="#dbeafe" stroke="#2563eb"/>
+  <text x="670" y="215" font-size="10" font-weight="bold" text-anchor="middle">输出 2</text>
+  <text x="670" y="230" font-size="8" text-anchor="middle">P4 检测</text>
+
+  <!-- Arrows -->
+  <line x1="220" y1="150" x2="285" y2="105" stroke="#374151" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="220" y1="150" x2="285" y2="160" stroke="#374151" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="220" y1="150" x2="285" y2="215" stroke="#374151" stroke-width="1.5" marker-end="url(#arrow)" stroke-dasharray="3,3"/>
+
+  <line x1="370" y1="100" x2="430" y2="150" stroke="#059669" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="370" y1="155" x2="430" y2="200" stroke="#059669" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="370" y1="215" x2="430" y2="225" stroke="#dc2626" stroke-width="1" marker-end="url(#arrow)" stroke-dasharray="3,3" opacity="0.4"/>
+
+  <line x1="560" y1="150" x2="620" y2="155" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="560" y1="200" x2="620" y2="215" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Stats -->
+  <text x="80" y="290" font-size="11" font-weight="bold" fill="#6b7280">参数变化:</text>
+  <text x="80" y="310" font-size="10" fill="#6b7280">baseline: 3,952,867 params</text>
+  <text x="80" y="328" font-size="10" fill="#6b7280">panet:    3,579,490 params (-373K)</text>
+  <text x="80" y="346" font-size="10" fill="#6b7280">nl:       3 → 2</text>
+
+  <text x="350" y="290" font-size="11" font-weight="bold" fill="#d97706">关键改动:</text>
+  <text x="350" y="310" font-size="10" fill="#92400e">• Detect head: 3 层 → 2 层</text>
+  <text x="350" y="328" font-size="10" fill="#92400e">• 删 P5 cv2+cv3 (~250K 参数)</text>
+  <text x="350" y="346" font-size="10" fill="#92400e">• backbone + neck 完整保留</text>
+
+  <text x="620" y="290" font-size="11" font-weight="bold" fill="#059669">理论收益:</text>
+  <text x="620" y="310" font-size="10" fill="#065f46">• 减参数 9.4%</text>
+  <text x="620" y="328" font-size="10" fill="#065f46">• 推理略快</text>
+  <text x="620" y="346" font-size="10" fill="#065f46">• 模型专注小目标</text>
+</svg>
+</div>
+
+<h3>4.1 架构假设的理论分析</h3>
+<p><strong>出发点</strong>：钢卷头尾是 <strong>固定大小的小目标</strong>，场景单一（不变化尺度），所以 P5 大目标检测头是冗余。</p>
+<p><strong>三个潜在收益</strong>：</p>
+<ol>
+  <li><strong>参数减少</strong>：1 个检测尺度 ≈ 250K 参数 → 总参数 -9.4%</li>
+  <li><strong>推理加速</strong>：减少 1 个尺度的预测分支 → 略快（实测 12ms → 10ms）</li>
+  <li><strong>训练聚焦</strong>：模型不被强制学习大目标模式（虽然实际没有大目标样本，但损失函数不会因 P5 空梯度浪费优化资源）</li>
+</ol>
+
+<h3>4.2 隐含的权衡</h3>
+<div class="panel warn">
+  <p><strong>但实际上</strong>：</p>
+  <ul>
+    <li>P5 输出在 neck 中仍生成（C2f 模块），但 Detect2 <strong>不消费</strong> → 计算量并未真正减少</li>
+    <li>检测头从 3 变 2 意味着<strong>回归分支和分类分支各自损失 1/3 的梯度信号</strong> → 单尺度梯度信号减半</li>
+    <li>DFL 的 16 个 bin 分布在 P3+P4+P5 上训练时是 3×16=48 个有效 bin，nl=2 后只剩 2×16=32 个</li>
+  </ul>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="code">5. 代码改动：Detect2 子类 + panet yaml</h2>
+
+<h3>5.1 Detect2 子类（仅 14 行）</h3>
+<pre><code>class Detect2(Detect):
+    """YOLOv8 Detect head with only N3+N4 outputs (2 scales, P5 dropped).
+
+    Inherits all forward logic and conv construction from Detect, but forces nl=2 by truncating
+    the input channel tuple to its first 2 elements (N3, N4). Backbone + neck remain unchanged.
+    """
+
+    def __init__(self, nc=80, ch=()):
+        """Initialize Detect2 with exactly 2 detection scales (N3, N4)."""
+        ch2 = tuple(ch[:2])              # 只取前 2 个通道（N3, N4），P5 被截断
+        super().__init__(nc, ch2)        # 复用 Detect 的所有构造逻辑
+        self.nl = 2                      # 显式锁定 nl=2</code></pre>
+
+<p><strong>关键设计</strong>：完全不重写 forward / cv2 / cv3 / dfl —— 全部从父类继承。仅在 <code>__init__</code> 截断输入通道。</p>
+
+<h3>5.2 tasks.py 三处补丁（让 ultralytics 识别 Detect2）</h3>
+<pre><code>1. line 13 import:
+   from ultralytics.nn.modules import ... Detect, Detect2, ...
+
+2. guess_model_task():
+   if m in ('detect', 'detect2'): return 'detect'
+
+3. parse_model line 714:
+   elif m in (Detect, Detect2, Segment, Pose):
+       # 让 yaml 写 Detect2 时能被识别为检测 head</code></pre>
+
+<h3>5.3 panet yaml（Detect 行改为 Detect2）</h3>
+<pre><code>head:
+  ...  # backbone 完整 + neck 完整 + N5 仍生成（line 31）
+
+- [[25, 28], 1, Detect2, [nc]]    # ← 唯一改动：原 [25, 28, 31] + Detect 改 Detect2
+  #                    ↑
+  #                   N5 (idx 31) 被删除，只保留 N3 (idx 25) + N4 (idx 28)</code></pre>
+
+<p><strong>完整 yaml 文件</strong>：<code>repos/Hyper-YOLO/ultralytics/cfg/models/coil_exp/hyper_yolon_panet.yaml</code></p>
+
+<h3>5.4 参数差异对比（验证）</h3>
+<pre><code>baseline   : nl=3 params=3,952,867 class=Detect
+panet      : nl=2 params=3,579,490 class=Detect2
+             stride=[8.0, 16.0]  no=65  cv2/cv3 len=2/2
+             head args=[1, [64, 128]]  (N3=64, N4=128 after width=0.25)
+
+参数减少 373,377 = baseline head 751,507 − Detect2 head 378,130
+（恰为 P5 head 的 convs）</code></pre>
+
+<!-- ============================================================ -->
+<h2 id="experiment">6. 实验结果与失败根因</h2>
+
+<h3>6.1 训练曲线</h3>
+<table>
+<thead><tr><th>训练阶段</th><th>epoch</th><th>mAP50</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>启动</td><td>ep1</td><td>~0.05</td><td>冷启动，Detect2 从零学</td></tr>
+<tr><td>爬升期</td><td>ep50-100</td><td>0.20-0.32</td><td>震荡上行</td></tr>
+<tr><td>继续爬升</td><td>ep149</td><td>0.4806</td><td>末段仍在上涨</td></tr>
+<tr><td>收敛</td><td>ep200</td><td>0.5894</td><td><strong>峰值</strong></td></tr>
+<tr><td>末段</td><td>ep250</td><td>0.5722</td><td>已收敛</td></tr>
+<tr><td>续训 (lr=0.005)</td><td>ep93</td><td>0.6023</td><td>更小 lr 略升</td></tr>
+<tr><td>续训末</td><td>ep121</td><td>~0.58</td><td>持平，未突破 0.60</td></tr>
+</tbody>
+</table>
+
+<h3>6.2 部署评估</h3>
+<table>
+<thead><tr><th>模型</th><th>学术 mAP50</th><th>部署 F1 (c=0.10)</th><th>(c=0.15)</th><th>(c=0.20)</th><th>TP/FP/FN (c=0.20)</th></tr></thead>
+<tbody>
+<tr><td>v18.3 (历史 SOTA)</td><td>0.8736</td><td>0.9111</td><td><strong>0.9286</strong></td><td><strong>0.9286</strong></td><td>39/2/4</td></tr>
+<tr><td>v0 baseline</td><td>0.8888</td><td>0.8352</td><td>0.8736</td><td>0.8736</td><td>38/6/5</td></tr>
+<tr style="background:#fee2e2;"><td><strong>Coil-PANet</strong></td><td><strong>0.6332</strong></td><td><strong>0.7407</strong></td><td><strong>0.7273</strong></td><td><strong>0.7397</strong></td><td><strong>27/3/16</strong></td></tr>
+</tbody>
+</table>
+
+<p><strong>关键发现</strong>：Coil-PANet 部署 c=0.20 时 <strong>FP=3 (极低)</strong>，但 <strong>FN=16 (漏检严重)</strong> → 模型"过度保守"，只在最有把握时才检测。</p>
+
+<h3>6.3 与 baseline 对比</h3>
+<div class="compare">
+  <div>
+    <h4>baseline (Detect nl=3)</h4>
+    <p>学术 mAP50: <span class="metric good">0.8888</span></p>
+    <p>部署 F1: <span class="metric good">0.8736</span></p>
+    <p>TP=38, FP=6, FN=5</p>
+    <p>召回/精度均衡</p>
+  </div>
+  <div>
+    <h4>Coil-PANet (Detect2 nl=2)</h4>
+    <p>学术 mAP50: <span class="metric bad">0.6332 (-25.6pp)</span></p>
+    <p>部署 F1: <span class="metric bad">0.7397 (-13.4pp)</span></p>
+    <p>TP=27, FP=3, FN=16</p>
+    <p>精度高但召回低</p>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="root-cause">7. 失败根因深度剖析（4 个层次）</h2>
+
+<h3>7.1 根因 1：<span class="badge bad">DFL 投影坍缩</span>（最致命）</h3>
+
+<div class="panel warn">
+  <p><strong>⚠ 用户反馈修正</strong>：初版报告说"Detect2 冷启动 / 只继承 2/3 预训练权重 / 损失 1/3 梯度信号"——这些说法<strong>大多不准确</strong>。真实机制是下面这套。</p>
+</div>
+
+<p><strong>关键事实</strong>：Detect2 子类在 <code>__init__</code> 里调用 <code>super().__init__(nc, ch2)</code>，父类 Detect 的构造会<strong>全新创建</strong> <code>cv2/cv3/dfl</code> ModuleList（head.py line 37-40）。所以根本不存在"继承 2/3 预训练权重"——所有 750K head 参数都是随机初始化。</p>
+
+<p><strong>真正影响模型表现的不是 cv2/cv3 没学好</strong>，而是 <code>self.dfl</code> 这个<strong>整个 head 共享</strong>的模块（head.py line 40: <code>self.dfl = DFL(self.reg_max) if self.reg_max &gt; 1 else nn.Identity()</code>）。</p>
+
+<h4>DFL 是什么</h4>
+<p>DFL = Distributed Focal Loss，把 bbox 边距的连续值<strong>离散化为 16 个 bin</strong>，每个 bin 配一个 Softmax 概率。最终预测距离 = <code>Σ softmax(bin_i) × bin_i</code>。</p>
+
+<h4>DFL 在 baseline vs Detect2 的差别</h4>
+<p>在 <code>forward</code> 里（head.py line 50），三个尺度（baseline）或两个尺度（Detect2）的 anchor 会被 <code>make_anchors</code> 拼起来：</p>
+<pre><code># baseline (nl=3): anchors 来自 P3 高密度 + P4 中密度 + P5 稀疏  →  DFL 学到的距离分布很广
+# Detect2 (nl=2): anchors 来自 P3 高密度 + P4 中密度 (P5 没了)   →  距离分布严重偏移
+
+# forward line 53:
+x_cat = torch.cat([xi.view(shape[0], self.no, -1) for xi in x], 2)
+#           ↑
+#    baseline: 3 尺度 anchor 拼接（共 h1*w1 + h2*w2 + h3*w3 个）
+#    Detect2 : 2 尺度 anchor 拼接（共 h1*w1 + h2*w2 个，少 1/3 锚点）
+
+# forward line 59:
+dbox = dist2bbox(self.dfl(box), self.anchors.unsqueeze(0), xywh=True, dim=1) * self.strides
+#                        ↑
+#            DFL 对共享的 16 个 bin 做 Softmax 投影
+#            baseline 训练的 DFL 已收敛在 3 尺度距离分布上
+#            Detect2 推理时输入的 box 来自 2 尺度 → 分布错位 → 投影精度暴跌
+</code></pre>
+
+<h4>为什么 DFL 投影坍缩</h4>
+<p>DFL 内部其实就是 1 个 <code>Conv2d(reg_max*4, reg_max*4, 1)</code>（head.py block.py 的 DFL 定义）。它的 16 个 bin 在训练时学到的是<strong>对应尺度 anchor 的距离分布峰值位置</strong>。</p>
+
+<p>想象 DFL 是一个"分段直方图投影器"：</p>
+<ul>
+  <li>baseline 训练：D FL 看到 P3 距离 0-32px（密集 bin 0-8）+ P4 距离 0-64px（密集 bin 0-12）+ P5 距离 0-128px（密集 bin 4-16）。这 3 个分布共同把 16 个 bin 的梯度填满。</li>
+  <li>Detect2 训练：DFL 只看到 P3 距离 0-32px + P4 距离 0-64px。<strong>bin 13-16（对应大距离 96-128px）几乎不更新梯度</strong> → DFL 在 bin 13-16 上的权重随机初始化值不再有意义。</li>
+  <li>Detect2 推理：bbox 真值的 4 条边距离在 0-32px 范围（钢卷场景 50×80 px 在 1024 输入上 stride=8/16），主要落在 bin 0-8——这部分分布还能用，但 bin 9-16 的"投影尾巴"成了噪声。</li>
+</ul>
+
+<p><strong>DFL Softmax 在分布外的 bin 上仍会输出非零概率</strong>（Softmax 永远不归零），这些噪声经过 <code>Σ prob_i × bin_i</code> 加权求和后会<strong>累积成系统性偏差</strong>——这才是 mAP50 暴跌 25pp 的真正机制。</p>
+
+<div class="svg-wrap">
+<svg viewBox="0 0 900 320" xmlns="http://www.w3.org/2000/svg" style="font-family: sans-serif;">
+  <text x="450" y="25" font-size="17" font-weight="bold" text-anchor="middle">DFL 16-bin 投影：baseline (3 尺度) vs Detect2 (2 尺度)</text>
+
+  <!-- baseline 3 尺度 -->
+  <text x="150" y="60" font-size="13" font-weight="bold" text-anchor="middle">baseline (3 尺度)</text>
+  <text x="150" y="78" font-size="10" text-anchor="middle" fill="#6b7280">P3 + P4 + P5 共同训练 DFL</text>
+
+  <!-- 16 bins -->
+  <g transform="translate(40, 100)">
+    <rect x="0"   y="100" width="22" height="0"   fill="#d1fae5"/>
+    <rect x="22"  y="80"  width="22" height="20"  fill="#d1fae5"/>
+    <rect x="44"  y="50"  width="22" height="50"  fill="#d1fae5"/>
+    <rect x="66"  y="20"  width="22" height="80"  fill="#059669"/>
+    <rect x="88"  y="10"  width="22" height="90"  fill="#059669"/>
+    <rect x="110" y="30"  width="22" height="70"  fill="#059669"/>
+    <rect x="132" y="50"  width="22" height="50"  fill="#d1fae5"/>
+    <rect x="154" y="60"  width="22" height="40"  fill="#d1fae5"/>
+    <rect x="176" y="65"  width="22" height="35"  fill="#d1fae5"/>
+    <rect x="198" y="70"  width="22" height="30"  fill="#d1fae5"/>
+    <rect x="220" y="55"  width="22" height="45"  fill="#d1fae5"/>
+    <rect x="242" y="45"  width="22" height="55"  fill="#d1fae5"/>
+    <rect x="264" y="35"  width="22" height="65"  fill="#d1fae5"/>
+    <rect x="286" y="25"  width="22" height="75"  fill="#d1fae5"/>
+    <rect x="308" y="20"  width="22" height="80"  fill="#d1fae5"/>
+    <rect x="330" y="40"  width="22" height="60"  fill="#d1fae5"/>
+  </g>
+  <text x="170" y="220" font-size="9" text-anchor="middle">0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 (bin)</text>
+  <text x="170" y="240" font-size="9" text-anchor="middle" fill="#059669">bin 3-5 峰值（所有尺度都覆盖）</text>
+
+  <!-- Detect2 2 尺度 -->
+  <text x="630" y="60" font-size="13" font-weight="bold" text-anchor="middle">Detect2 (2 尺度)</text>
+  <text x="630" y="78" font-size="10" text-anchor="middle" fill="#6b7280">P3 + P4 训练 DFL，bin 9-15 无梯度</text>
+
+  <g transform="translate(520, 100)">
+    <rect x="0"   y="100" width="22" height="0"   fill="#fee2e2"/>
+    <rect x="22"  y="85"  width="22" height="15"  fill="#fee2e2"/>
+    <rect x="44"  y="55"  width="22" height="45"  fill="#dc2626"/>
+    <rect x="66"  y="25"  width="22" height="75"  fill="#dc2626"/>
+    <rect x="88"  y="20"  width="22" height="80"  fill="#dc2626"/>
+    <rect x="110" y="40"  width="22" height="60"  fill="#dc2626"/>
+    <rect x="132" y="55"  width="22" height="45"  fill="#dc2626"/>
+    <rect x="154" y="60"  width="22" height="40"  fill="#dc2626"/>
+    <rect x="176" y="65"  width="22" height="35"  fill="#fee2e2"/>
+    <rect x="198" y="50"  width="22" height="50"  fill="#fee2e2"/>
+    <rect x="220" y="55"  width="22" height="45"  fill="#fee2e2"/>
+    <rect x="242" y="50"  width="22" height="50"  fill="#fee2e2"/>
+    <rect x="264" y="55"  width="22" height="45"  fill="#fee2e2"/>
+    <rect x="286" y="60"  width="22" height="40"  fill="#fee2e2"/>
+    <rect x="308" y="65"  width="22" height="35"  fill="#fee2e2"/>
+    <rect x="330" y="70"  width="22" height="30"  fill="#fee2e2"/>
+  </g>
+  <text x="650" y="220" font-size="9" text-anchor="middle">0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 (bin)</text>
+  <text x="650" y="240" font-size="9" text-anchor="middle" fill="#dc2626">bin 9-15 残留随机权重 → Softmax 噪声</text>
+
+  <!-- Softmax 投影示意 -->
+  <text x="450" y="270" font-size="12" font-weight="bold" text-anchor="middle">→ Softmax 投影求和：</text>
+  <text x="450" y="290" font-size="10" text-anchor="middle">baseline: Σ prob × bin ≈ 真实距离（bin 0-15 全有效）</text>
+  <text x="450" y="307" font-size="10" text-anchor="middle" fill="#dc2626">Detect2 : Σ prob × bin ≈ 真实距离 + bin 9-15 随机噪声累积偏差</text>
+</svg>
+</div>
+
+<h4>为什么续训 + 121 ep 也无法突破 0.60</h4>
+<p>如果你看 panet 训练曲线，会发现 ep200 = 0.5894, ep250 = 0.5722, 续训到 ep121 ≈ 0.58。<strong>瓶颈不在 cv2/cv3 还在学</strong>，而在于 DFL 的 16-bin 分布假设被打破后，cv2 输出再准也救不回 Softmax 投影的系统性偏差。</p>
+
+<p>这就是 Detect2 nl=2 <strong>"看着只删了一层、实际动了 DFL 这个不可拆分的耦合点"</strong> 的真实机制。</p>
+
+<h3>7.2 根因 2：<span class="badge warn">P5 冗余互助缺失</span></h3>
+<p><strong>现象</strong>：单尺度看 panet 每个尺度样本更多（~156 张 vs baseline ~104 张），但模型整体精度暴跌。</p>
+<p><strong>真正原因</strong>：3 尺度在 NWD 监督下是<strong>冗余互助</strong>的——同一目标在 P3/P4/P5 都被分配 anchor，三处梯度共同强化 bbox 定位。nl=2 后失去 P5 冗余信号，DFL 学到的位置分布更稀疏。</p>
+<p><strong>与"冷启动/梯度损失"的区别</strong>：这里不是说 cv2/cv3 没梯度（实际反而更多），而是 <strong>DFL 失去一个尺度的 anchor 分布作为正则化</strong>，分布稀疏导致 DFL 投影偏差放大。</p>
+
+<h3>7.3 根因 3：<span class="badge bad">数据规模硬约束</span></h3>
+<p><strong>现象</strong>：train=312 张正样本 + 233 负样本 = 545 张。</p>
+<p><strong>原因</strong>：Detect2 的 2 尺度设计相比 3 尺度：</p>
+<table>
+<thead><tr><th>项目</th><th>3 尺度 (baseline)</th><th>2 尺度 (Detect2)</th></tr></thead>
+<tbody>
+<tr><td>每个尺度的有效训练样本</td><td>~104 张/尺度</td><td>~156 张/尺度</td></tr>
+<tr><td>梯度信号维度</td><td>3×16=48 bin</td><td>2×16=32 bin (-33%)</td></tr>
+<tr><td>DFL 距离预测样本量</td><td>多尺度融合更稳定</td><td>尺度少，DFL 学到的距离分布更稀疏</td></tr>
+</tbody>
+</table>
+<p><strong>后果</strong>：在 545 张小数据集上，2 尺度的统计效能<strong>不足以支撑</strong>小目标检测的高精度需求。同 [[v17-p2-four-scale-fail]] 失败模式（4 尺度在 312 张数据上 mAP50=0.034 彻底失败）。</p>
+
+<h3>7.4 根因 4：<span class="badge warn">P5 信息流"半失效"</span></h3>
+<p><strong>现象</strong>：Detect2 删了 P5 检测头，但 backbone+neck 仍生成 N5。</p>
+
+<div class="svg-wrap">
+<svg viewBox="0 0 900 250" xmlns="http://www.w3.org/2000/svg" style="font-family: sans-serif;">
+  <text x="450" y="25" font-size="17" font-weight="bold" text-anchor="middle">P5 信息流断裂问题</text>
+
+  <!-- N5 -->
+  <rect x="50" y="80" width="100" height="60" rx="4" fill="#fef3c7" stroke="#d97706"/>
+  <text x="100" y="105" font-size="11" font-weight="bold" text-anchor="middle">N5 生成</text>
+  <text x="100" y="120" font-size="9" text-anchor="middle">(C2f 输出)</text>
+  <text x="100" y="135" font-size="9" text-anchor="middle" fill="#d97706">~32×18 特征</text>
+
+  <!-- P4 -->
+  <rect x="240" y="80" width="100" height="60" rx="4" fill="#d1fae5" stroke="#059669"/>
+  <text x="290" y="105" font-size="11" font-weight="bold" text-anchor="middle">P4 (N4)</text>
+  <text x="290" y="120" font-size="9" text-anchor="middle">~64×36 特征</text>
+  <text x="290" y="135" font-size="9" text-anchor="middle" fill="#059669">Detect2 消费</text>
+
+  <!-- Concat question -->
+  <line x1="150" y1="110" x2="240" y2="110" stroke="#dc2626" stroke-width="2" stroke-dasharray="5,3" marker-end="url(#arrow)"/>
+  <text x="195" y="100" font-size="9" text-anchor="middle" fill="#dc2626">N4 ← N5 ?</text>
+  <text x="195" y="160" font-size="8" text-anchor="middle" fill="#6b7280">(neck 中 N4 输入 N5)</text>
+
+  <!-- P3 -->
+  <rect x="430" y="80" width="100" height="60" rx="4" fill="#d1fae5" stroke="#059669"/>
+  <text x="480" y="105" font-size="11" font-weight="bold" text-anchor="middle">P3 (N3)</text>
+  <text x="480" y="120" font-size="9" text-anchor="middle">~128×72 特征</text>
+  <text x="480" y="135" font-size="9" text-anchor="middle" fill="#059669">Detect2 消费</text>
+
+  <!-- Loss question -->
+  <line x1="340" y1="110" x2="430" y2="110" stroke="#059669" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="150" y1="110" x2="430" y2="135" stroke="#dc2626" stroke-width="1" stroke-dasharray="3,3" opacity="0.4"/>
+
+  <!-- Right side -->
+  <rect x="600" y="60" width="250" height="120" rx="6" fill="#fee2e2" stroke="#dc2626"/>
+  <text x="725" y="85" font-size="12" font-weight="bold" text-anchor="middle" fill="#991b1b">问题：</text>
+  <text x="725" y="105" font-size="10" text-anchor="middle" fill="#991b1b">N5 仍消耗计算资源</text>
+  <text x="725" y="122" font-size="10" text-anchor="middle" fill="#991b1b">但梯度不回流</text>
+  <text x="725" y="139" font-size="10" text-anchor="middle" fill="#991b1b">N5→N4 路径"断流"</text>
+  <text x="725" y="156" font-size="10" text-anchor="middle" fill="#991b1b">N4 失去 P5 辅助</text>
+  <text x="725" y="173" font-size="10" text-anchor="middle" fill="#991b1b">N3 同理</text>
+</svg>
+</div>
+
+<p><strong>原因</strong>：原 neck 中 N4 (idx 22) 接收来自 N5 (idx 20) 的 Concat 信息（line 30 [[-1, 20], 1, Concat]）。删除 P5 检测头<strong>不等于</strong>删除 N5 路径 —— N5 仍生成并参与 N4/N3 的特征融合，但<strong>梯度不再回传到 N5 检测</strong>。这造成 N5 路径"半失效"。</p>
+
+<p><strong>后果</strong>：N3/N4 失去了 P5 提供的语义信息补偿（虽然 P5 原本对小目标也没用，但 neck 中 N5→N4 Concat 提供了上下文特征）。</p>
+
+<h3>7.5 根因 5：<span class="badge bad">TTA-builtin 不兼容</span></h3>
+<p><strong>现象</strong>：用 <code>model.predict(augment=True)</code> 跑 TTA-builtin 时 <strong>RuntimeError</strong>：</p>
+<pre><code>RuntimeError: Sizes of tensors must match except in dimension 1.
+Expected size 25 but got size 26 for tensor number 4 in the list.
+File "ultralytics/nn/modules/conv.py", line 322, in forward
+    return torch.cat(x, self.d)</code></pre>
+<p><strong>原因</strong>：TTA-builtin 启用 multi-scale 推理（不同 imgsz 测试），但 Detect2 在某些尺度下 <strong>N3/N4 的 spatial size 不匹配 Concat 要求</strong>。Conv.py line 322 是 <code>Proto</code> 模块（用于 mask，但即使 nc=1 也包含）。</p>
+<p><strong>后果</strong>：部署时必须关 TTA (augment=False)，牺牲了 TTA 带来的精度提升。</p>
+
+<!-- ============================================================ -->
+<h2 id="improvements">8. 改进方向（5 个具体方案）</h2>
+
+<h3>8.1 改进 A：<span class="badge good">反向 — 删 P3 而非 P5</span></h3>
+<div class="panel info">
+  <p><strong>思路</strong>：钢卷头尾是中等目标（20×32 px in 1024），实际更多落在 P4 而非 P3。删除 P3 (stride=8) 反而合理：</p>
+  <ul>
+    <li>P4 (stride=16): 目标 = 1.25×2 像素 → 仍是 2.5 cell</li>
+    <li>P5 (stride=32): 目标 = 0.6×1 像素 → 0.6 cell（边缘）</li>
+    <li>但 P3 + P4 + P5 三尺度在 NWD 监督下能互助，删除任一会损失</li>
+  </ul>
+  <p><strong>具体实现</strong>：再写一个 <code>Detect_P4_P5</code> 子类，保留 P4+P5。</p>
+  <p><strong>预期收益</strong>：避免小目标信息缺失，保留大尺度辅助。</p>
+  <p><strong>风险</strong>：P3 仍是最适合 20px 目标的尺度，删除会损失主要精度。</p>
+</div>
+
+<h3>8.2 改进 B：<span class="badge good">保留 P5 但简化 head</span></h3>
+<div class="panel info">
+  <p><strong>思路</strong>：不是删 P5 检测头，而是<strong>共享权重</strong>让 P3 和 P5 用同一组 cv2/cv3：</p>
+  <pre><code>class DetectShared(Detect):
+    def __init__(self, nc=80, ch=()):
+        super().__init__(nc, ch)
+        # 共享 P3 和 P5 的 cv2/cv3（参数减半，3 尺度仍输出）
+        self.cv2_p5 = self.cv2[0]    # 共享 P3 的权重
+        self.cv3_p5 = self.cv3[0]</code></pre>
+  <p><strong>具体实现</strong>：在 cv2/cv3 ModuleList 长度=3 但 P5 索引指向 P3 权重。</p>
+  <p><strong>预期收益</strong>：参数 -1/3，但保留 3 尺度信息流。</p>
+  <p><strong>风险</strong>：P5 检测时实际用 P3 学到的特征，效果可能打折。</p>
+</div>
+
+<h3>8.3 改进 C：<span class="badge good">From-Coil-PANet pretrain</span></h3>
+<div class="panel info">
+  <p><strong>思路</strong>：用 baseline best.pt 当 Detect2 的起点预训练权重，而不是从 random init：</p>
+  <pre><code>PYTHONPATH= /home/pi/anaconda3/envs/hyper-yolo/bin/yolo detect train \
+  model=runs/baseline/v0_baseline_hyper_yolon_strong_aug_250ep/weights/best.pt \
+  # ↑ 用 baseline best.pt 当起点</code></pre>
+  <p>注意：Detect2 的 cv2/cv3 长度=2，baseline 的 cv2/cv3 长度=3，<strong>权重映射要写代码</strong>（继承前 2 个）。</p>
+  <p><strong>预期收益</strong>：避免冷启动，节省 ~50 ep 的"消化"时间。</p>
+  <p><strong>风险</strong>：load_state_dict 时 strict=False，丢弃 P5 索引权重。</p>
+</div>
+
+<h3>8.4 改进 D：<span class="badge good">Detect2 + 弱 aug 范式</span></h3>
+<div class="panel info">
+  <p><strong>思路</strong>：v18.3 范式（弱 aug + HN crop + lr=0.005 + 100ep）证明对部署 F1 极有效。Detect2 也走此范式：</p>
+  <pre><code># run_detect2_weak_aug.sh
+model=repos/Hyper-YOLO/ultralytics/cfg/models/coil_exp/hyper_yolon_panet.yaml
+epochs=100 patience=30
+lr0=0.005 lrf=0.0005
+degrees=0.0 scale=0.0 flipud=0.0 copy_paste=0.0
+# data 已含 hard neg 副本 (hn{1,2,3}_*.png)</code></pre>
+  <p><strong>预期收益</strong>：可能把部署 F1 从 0.74 提升到 0.85+ （参照 v0 baseline 强 aug 0.87 → v19 弱 aug 0.87 持平）。</p>
+</div>
+
+<h3>8.5 改进 E：<span class="badge good">数据扩容（最关键）</span></h3>
+<div class="panel good">
+  <p><strong>思路</strong>：所有架构创新在 312 张正样本上都是数据规模受限。优先扩容：</p>
+  <ul>
+    <li>从 captures_update/ 目录提取更多 steel coil 时间序列</li>
+    <li>用 <code>scripts/expand_hard_neg.py</code> + 半监督 pseudo-label 增加训练样本</li>
+    <li>数据量目标 ≥1000 张正样本</li>
+  </ul>
+  <p><strong>预期收益</strong>：所有创新点的失败根因（数据规模硬约束）一次性解决。</p>
+  <p><strong>这是根本性突破方向</strong>，比任何架构创新 ROI 都高。</p>
+</div>
+
+<h3>8.6 改进方案对比</h3>
+<table>
+<thead><tr><th>方案</th><th>实施成本</th><th>预期收益</th><th>风险</th><th>推荐度</th></tr></thead>
+<tbody>
+<tr><td>A. 反向删 P3</td><td>低（写新子类）</td><td>中等</td><td>中等</td><td>⭐⭐⭐</td></tr>
+<tr><td>B. 共享权重 P3/P5</td><td>中（改 Detect）</td><td>中等</td><td>低</td><td>⭐⭐⭐</td></tr>
+<tr><td>C. From-baseline pretrain</td><td>低（写映射）</td><td>高（避免冷启动）</td><td>低</td><td>⭐⭐⭐⭐</td></tr>
+<tr><td>D. Detect2 + 弱 aug</td><td>低（沿用 v18.3）</td><td>高（v18.3 范式已验证）</td><td>低</td><td>⭐⭐⭐⭐⭐</td></tr>
+<tr><td>E. 数据扩容</td><td>高（数据采集+标注）</td><td><strong>最高</strong></td><td>低</td><td>⭐⭐⭐⭐⭐</td></tr>
+</tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="summary">9. 总结与展望</h2>
+
+<div class="panel info">
+  <h3>核心结论</h3>
+  <ol>
+    <li><strong>Coil-PANet (Detect2 nl=2) 的创新点本身是合理的</strong>：删除冗余的 P5 检测头，专精小目标。</li>
+    <li><strong>本次失败有 5 个独立原因</strong>：DFL 投影坍缩 + P5 冗余互助缺失 + 数据规模硬约束 + P5 路径半失效 + TTA 不兼容（DFL 是最致命）。</li>
+    <li><strong>Head 层创新空间存在</strong>，但需要：
+      <ul>
+        <li>数据扩容（突破 312 张正样本硬约束）</li>
+        <li>改进 D（弱 aug 范式）作为快速验证</li>
+        <li>改进 C（pretrain 起点）解决冷启动</li>
+      </ul>
+    </li>
+    <li><strong>v18.3 仍是部署 SOTA</strong>（0.9286），Coil-PANet 未破纪录但代码资产保留供未来重试。</li>
+  </ol>
+</div>
+
+<h3>下一步建议（按 ROI 排序）</h3>
+<ol>
+  <li><strong>立刻可做</strong>：改进 D — Detect2 + 弱 aug（用 v18.3 范式重训 Coil-PANet）</li>
+  <li><strong>中期</strong>：改进 C — pretrain 起点（用 baseline 当 Detect2 的初始权重）</li>
+  <li><strong>长期</strong>：数据扩容 + 改进 A/B + 多模型 ensemble</li>
+</ol>
+
+<p style="margin-top: 2rem; padding: 1rem; background: #f3f4f6; border-radius: 8px; text-align: center; color: #6b7280;">
+  报告生成：2026-07-16 H14:00 &nbsp;|&nbsp;
+  关联脚本：<code>scripts/run_coil_panet_250ep.sh</code>, <code>scripts/run_panet_extend_200ep.sh</code> &nbsp;|&nbsp;
+  关联 memory：<a href="v17-p2-four-scale-fail.md">v17 P2 失败</a> · <a href="ultracode-b-progress-2026-07-16.md">ulracode B 进展</a>
+</p>
+
+</div>
+</body>
+</html>

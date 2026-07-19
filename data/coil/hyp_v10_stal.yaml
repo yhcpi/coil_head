@@ -1,0 +1,53 @@
+# v10 STAL (Small-Target-Aware Label assignment)
+# 基于 v8 NWD weak aug (best F1=0.929 + TTA)
+# 唯一变量: stal_area_thr=400 / stal_topk=13 / stal_expand=0.2
+# 目的: 让 ~20×20 px tip 在 TAL 阶段获得更多 positive anchor,
+#       期望 recall 0.974 → 1.00
+# 论文: YOLO26 §STAL (arXiv 2509.25164v5)
+
+# === 几何变换（与 v8 NWD weak 一致）===
+degrees: 0.0
+translate: 0.0
+scale: 0.0
+shear: 0.0
+perspective: 0.0
+flipud: 0.0
+fliplr: 0.5
+
+# === 颜色空间 ===
+hsv_h: 0.015
+hsv_s: 0.7
+hsv_v: 0.4
+
+# === 组合增强（弱 aug）===
+mosaic: 0.0
+mixup: 0.0
+copy_paste: 0.0
+
+# === 损失/正则 ===
+box: 1.5
+cls: 0.5
+dfl: 1.5
+label_smoothing: 0.0
+
+# === bbox_random_shrink（关闭）===
+bbox_shrink_min: 1.0
+bbox_shrink_max: 1.0
+bbox_shrink_p: 0.0
+
+# === multi-scale（关闭）===
+multi_scale: 0.0
+
+# === NWD（v8 baseline 行为）===
+nwd: true
+nwd_constant: 12.0
+
+# === Coverage（关闭）===
+coverage: false
+coverage_weight: 0.5
+coverage_sigma: 20.0
+
+# === 🆕 STAL (本次实验唯一变量) ===
+stal_area_thr: 400.0  # (float) 小目标 area cutoff (px²); 400 ≈ 20×20 tip
+stal_topk: 13         # (int) 小目标的 topk (vs default 10)
+stal_expand: 0.2      # (float) 小目标 bbox 膨胀系数

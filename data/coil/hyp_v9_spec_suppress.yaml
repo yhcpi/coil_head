@@ -1,0 +1,49 @@
+# 创新点 v9: Specular Highlight Suppression（结构感知反光抑制）
+# 改动日期: 2026-07-11
+# 目的: 在 backbone 末层 (SPPF) 后插入 SpecSuppress, 抑制钢卷头尾反光导致的 FN
+# 默认开关: spec_suppress=False (与 v8 NWD 行为一致), 设 true 启用
+#
+# 复现路径 (基于 v8 NWD weak aug best):
+#   v4 (弱 aug + NWD) → v8 NWD weak (mAP50=0.869 + TTA F1=0.929) → v9 + SpecSuppress
+
+# === 几何变换（与 v8 NWD 一致, 弱 aug 保住 mAP）===
+degrees: 5.0
+translate: 0.1
+scale: 0.5
+shear: 0.0
+perspective: 0.0005
+flipud: 0.5
+fliplr: 0.5
+
+# === 颜色空间 ===
+hsv_h: 0.015
+hsv_s: 0.7
+hsv_v: 0.4
+
+# === 组合增强 ===
+mosaic: 0.0
+mixup: 0.0
+copy_paste: 0.2
+
+# === 损失/正则 (NWD 替换 IoU) ===
+box: 1.5
+cls: 1.0
+dfl: 1.5
+label_smoothing: 0.02
+nwd: true
+nwd_constant: 12.0
+
+# === bbox_random_shrink (与 v8 一致) ===
+bbox_shrink_min: 0.8
+bbox_shrink_max: 1.2
+bbox_shrink_p: 1.0
+
+# === multi-scale ===
+multi_scale: 0.0
+
+# ── 创新点 v9: 反光抑制 ──
+# 总开关: 默认 false; 设 true 后模块被实例化
+spec_suppress: true
+# recon loss 权重: 自监督信号, 不进 box/cls/dfl, 仅作辅助梯度
+# 推荐 0.1 (相对 box/cls ~1.0 量级, 让检测 loss 主导训练)
+spec_recon_weight: 0.1
