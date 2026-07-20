@@ -1,22 +1,23 @@
 """coil_tip_viz_gui.py - 钢卷头尾检测可视化主 GUI 程序
 
+v2.0 - TRAE-style redesign, 2026-07-20
+
 依赖模块 (已实现, 直接 import):
     frame_diff_wrapper.FrameDiffProcessor  (同目录)
     hyper_inference.HyperYoloDetector       (同目录)
     pyav_reader.open_video                  (/home/pi/projects/mm/帧差法/)
 
-UI 布局 (tkinter, 1280x800):
-    顶部工具栏 (height=50):  [选择文件夹] [开始/暂停] | 当前视频名 + 进度
-    左侧视频列表 (width=30):  Listbox 列出扫描到的视频文件
-    中央视频显示:             Label 显示当前帧 (含 state/bbox 叠加)
-    右侧状态面板 (width=300): state/sub_state/FPS + 检测结果 + 截图列表
-    底部控制 (height=30):     [上一段] [下一段] | 段计数
+UI 布局 (ttkbootstrap cosmo, 1280x800):
+    顶部导航 48px:  品牌 | 单一 tab "检测工作台" | 推理阈值 + 设置
+    主体 12px margin 三列 (280 / 弹性 / 280):
+        左:   资源 (4 按钮 + 权重/输出 meta) + 视频列表
+        中:   卡片 [header 44 | 视频视口 | progress 4 | controls 56]
+        右:   运行状态卡 + 检测卡 + 截图卡
 
-线程模型:
-    - 主线程: tkinter event loop (root.mainloop())
-    - 后台 1 个 worker 线程: 读帧 → FrameDiffProcessor.process_frame() → HyperYoloDetector.detect()
-                              通过 queue.Queue 推 (frame_bgr, status) 给主线程
-    - 主线程每 100ms 用 root.after(100, self.poll_queue) 消费队列
+线程模型 (不变):
+    - 主线程: tkinter event loop
+    - 后台 1 个 worker 线程 (daemon)
+    - 主线程每 100ms 用 root.after(POLL_MS, poll_queue) 消费队列
 
 启动:
     python /home/pi/projects/hyperyolo/scripts/gui/coil_tip_viz_gui.py
@@ -35,6 +36,9 @@ import cv2
 import numpy as np
 from PIL import Image, ImageTk
 
+import ttkbootstrap as ttk
+from ttkbootstrap.constants import *
+
 # 同目录模块
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 if THIS_DIR not in sys.path:
@@ -48,7 +52,7 @@ from pyav_reader import open_video
 
 
 # ----------------------------------------------------------------------
-# 常量
+# 常量 (v1.0 保持不变)
 # ----------------------------------------------------------------------
 CAPTURE_ROOT = '/home/pi/projects/hyperyolo/runs/captures_gui'
 CONF_HI = 0.5  # bbox 颜色分界: > CONF_HI 绿色, 否则黄色
@@ -60,7 +64,43 @@ WEIGHT_EXTS = ('.pt', '.pth', '.onnx', '.engine')
 
 
 # ----------------------------------------------------------------------
-# 绘制工具
+# 设计 token (v2.0)
+# ----------------------------------------------------------------------
+COLOR_APP_BG        = "#F5F6F8"
+COLOR_SIDEBAR_BG    = "#FAFBFC"
+COLOR_CARD_BG       = "#FFFFFF"
+COLOR_HOVER_BG      = "#F4F2FB"
+COLOR_SELECTED_BG   = "#EEE9FF"
+COLOR_VIDEO_BG      = "#17191F"
+COLOR_BORDER        = "#E4E7EC"
+COLOR_TEXT_PRIMARY  = "#20232A"
+COLOR_TEXT_SECONDARY = "#596170"
+COLOR_TEXT_MUTED    = "#8C95A3"
+COLOR_ACCENT        = "#6B4EE6"
+COLOR_ACCENT_SOFT   = "#F0ECFF"
+COLOR_SUCCESS       = "#2E9663"
+COLOR_SUCCESS_SOFT  = "#EAF7F0"
+COLOR_WARNING       = "#D68A16"
+COLOR_WARNING_SOFT  = "#FFF6E5"
+COLOR_ERROR         = "#D14343"
+COLOR_ERROR_SOFT    = "#FFF0F0"
+COLOR_INFO          = "#3478F6"
+COLOR_INFO_SOFT     = "#EDF4FF"
+
+FONT_FAMILY      = "Segoe UI"
+FONT_FAMILY_MONO = "Cascadia Mono"
+
+# state -> 颜色映射 (用于徽章圆点)
+STATE_COLORS = {
+    "STABLE": COLOR_SUCCESS,
+    "CHANGE": COLOR_WARNING,
+    "ERR":    COLOR_ERROR,
+    "INIT":   COLOR_INFO,
+}
+
+
+# ----------------------------------------------------------------------
+# 绘制工具 (OpenCV BGR 标注色保持原样, 不替换为 UI 主题色)
 # ----------------------------------------------------------------------
 def draw_overlay(frame: np.ndarray, state: str, sub_state: str,
                  detections: List[Dict[str, Any]]) -> np.ndarray:
@@ -91,16 +131,52 @@ def resize_keep_ar(frame: np.ndarray, max_w: int, max_h: int) -> np.ndarray:
 
 
 # ----------------------------------------------------------------------
+# Tooltip 工具 (用于长路径悬停展示)
+# ----------------------------------------------------------------------
+class _Tooltip:
+    """极简 Tooltip: 鼠标进入 widget 显示全文本."""
+    def __init__(self, widget: tk.Widget, get_text):
+        self.widget = widget
+        self.get_text = get_text
+        self.tip: Optional[tk.Toplevel] = None
+        widget.bind("<Enter>", self._show, add="+")
+        widget.bind("<Leave>", self._hide, add="+")
+        widget.bind("<ButtonPress>", self._hide, add="+")
+
+    def _show(self, _evt=None):
+        text = self.get_text()
+        if not text:
+            return
+        x = self.widget.winfo_rootx() + 12
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+        self.tip = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        lbl = tk.Label(tw, text=text, bg="#20232A", fg="#FFFFFF",
+                       font=(FONT_FAMILY, 9), padx=8, pady=4,
+                       justify="left", wraplength=420)
+        lbl.pack()
+
+    def _hide(self, _evt=None):
+        if self.tip is not None:
+            try:
+                self.tip.destroy()
+            except Exception:
+                pass
+            self.tip = None
+
+
+# ----------------------------------------------------------------------
 # GUI
 # ----------------------------------------------------------------------
 class CoilTipVizGUI:
-    def __init__(self, root: tk.Tk):
+    def __init__(self, root: "ttk.Window"):
         self.root = root
         self.root.title("钢卷头尾检测 GUI")
         self.root.geometry("1280x800")
         self.root.minsize(1100, 700)
 
-        # ---- 运行状态 ----
+        # ---- 运行状态 (全部保留) ----
         self.video_paths: List[str] = []
         self.current_video_idx: int = -1
         self.running: bool = False
@@ -128,6 +204,8 @@ class CoilTipVizGUI:
 
         # PhotoImage 引用 (防 GC)
         self._photo_ref: Optional[ImageTk.PhotoImage] = None
+        # 当前 state key (用于徽章配色; 与 lbl_state 文本解耦, 便于样式更新)
+        self._current_state_key: str = "INIT"
 
         # 必须先 _build_ui() 再 _init_detector/_init_fd_proc:
         # _init_* 会 self.lbl_weight.config()/self.lbl_output.config(), label 在 _build_ui 创建
@@ -135,9 +213,120 @@ class CoilTipVizGUI:
         # 启动时尝试加载默认权重; 失败不阻塞, 让用户手动选
         self._init_detector(use_default=True)
         self._init_fd_proc()
-        self.lbl_video.config(text="当前: -- (请先选文件夹)")
+        self.lbl_video.config(text="当前: -- (请先选视频)")
 
-    # ---- 初始化 ----
+    # ------------------------------------------------------------------
+    # ttkbootstrap 样式集中定义
+    # ------------------------------------------------------------------
+    def _setup_styles(self):
+        style = ttk.Style()
+
+        # ---- 容器 ----
+        style.configure("App.TFrame",      background=COLOR_APP_BG)
+        style.configure("TopNav.TFrame",   background=COLOR_CARD_BG)
+        style.configure("Sidebar.TFrame",  background=COLOR_SIDEBAR_BG)
+        style.configure("Card.TFrame",     background=COLOR_CARD_BG)
+        style.configure("ControlBar.TFrame", background=COLOR_CARD_BG)
+        style.configure("Video.TFrame",    background=COLOR_VIDEO_BG)
+        style.configure("Header.TFrame",   background=COLOR_CARD_BG)
+
+        # ---- 通用 Label ----
+        style.configure("TLabel",
+                        background=COLOR_CARD_BG,
+                        foreground=COLOR_TEXT_PRIMARY,
+                        font=(FONT_FAMILY, 11))
+
+        # 顶部导航
+        style.configure("Brand.TLabel",
+                        background=COLOR_CARD_BG,
+                        foreground=COLOR_TEXT_PRIMARY,
+                        font=(FONT_FAMILY, 18, "bold"))
+        style.configure("ActiveTab.TLabel",
+                        background=COLOR_CARD_BG,
+                        foreground=COLOR_ACCENT,
+                        font=(FONT_FAMILY, 11, "bold"))
+
+        # 通用 caption / section / meta
+        style.configure("Caption.TLabel",
+                        background=COLOR_CARD_BG,
+                        foreground=COLOR_TEXT_MUTED,
+                        font=(FONT_FAMILY, 9))
+        style.configure("SectionTitle.TLabel",
+                        background=COLOR_CARD_BG,
+                        foreground=COLOR_TEXT_PRIMARY,
+                        font=(FONT_FAMILY, 14, "bold"))
+        style.configure("Meta.TLabel",
+                        background=COLOR_CARD_BG,
+                        foreground=COLOR_TEXT_MUTED,
+                        font=(FONT_FAMILY, 9))
+        style.configure("Secondary.TLabel",
+                        background=COLOR_CARD_BG,
+                        foreground=COLOR_TEXT_SECONDARY,
+                        font=(FONT_FAMILY, 11))
+        style.configure("Metric.TLabel",
+                        background=COLOR_CARD_BG,
+                        foreground=COLOR_TEXT_PRIMARY,
+                        font=(FONT_FAMILY_MONO, 11))
+        style.configure("Video.TLabel",
+                        background=COLOR_VIDEO_BG,
+                        foreground=COLOR_TEXT_MUTED,
+                        font=(FONT_FAMILY, 11))
+
+        # 侧栏变体 (不同背景)
+        for base in ("SectionTitle.TLabel", "Caption.TLabel", "Meta.TLabel",
+                     "Secondary.TLabel", "Brand.TLabel", "TLabel"):
+            style.configure(f"Sidebar.{base}", background=COLOR_SIDEBAR_BG)
+
+        # 状态徽章 (默认)
+        style.configure("StatusBadge.Default.TLabel",
+                        background=COLOR_ACCENT_SOFT,
+                        foreground=COLOR_ACCENT,
+                        font=(FONT_FAMILY, 11, "bold"),
+                        padding=(10, 4))
+        style.configure("StatusBadge.Success.TLabel",
+                        background=COLOR_SUCCESS_SOFT,
+                        foreground=COLOR_SUCCESS,
+                        font=(FONT_FAMILY, 11, "bold"),
+                        padding=(10, 4))
+        style.configure("StatusBadge.Warning.TLabel",
+                        background=COLOR_WARNING_SOFT,
+                        foreground=COLOR_WARNING,
+                        font=(FONT_FAMILY, 11, "bold"),
+                        padding=(10, 4))
+        style.configure("StatusBadge.Error.TLabel",
+                        background=COLOR_ERROR_SOFT,
+                        foreground=COLOR_ERROR,
+                        font=(FONT_FAMILY, 11, "bold"),
+                        padding=(10, 4))
+        style.configure("StatusBadge.Info.TLabel",
+                        background=COLOR_INFO_SOFT,
+                        foreground=COLOR_INFO,
+                        font=(FONT_FAMILY, 11, "bold"),
+                        padding=(10, 4))
+
+        # 段徽章
+        style.configure("SegmentBadge.TLabel",
+                        background=COLOR_ACCENT_SOFT,
+                        foreground=COLOR_ACCENT,
+                        font=(FONT_FAMILY, 11, "bold"),
+                        padding=(10, 4))
+
+        # 错误提示条
+        style.configure("ErrorBanner.TLabel",
+                        background=COLOR_ERROR_SOFT,
+                        foreground=COLOR_ERROR,
+                        font=(FONT_FAMILY, 10),
+                        padding=(10, 6))
+
+        # 卡片标题 (强制白底)
+        style.configure("Card.SectionTitle.TLabel",
+                        background=COLOR_CARD_BG,
+                        foreground=COLOR_TEXT_PRIMARY,
+                        font=(FONT_FAMILY, 14, "bold"))
+
+    # ------------------------------------------------------------------
+    # 初始化 (逻辑不变; lbl_weight/lbl_output 用 tk.Label 保留 fg=)
+    # ------------------------------------------------------------------
     def _init_detector(self, use_default: bool = False):
         """加载模型. use_default=True 时用 HyperYoloDetector 默认权重候选; 否则用 self.weight_path."""
         try:
@@ -172,137 +361,478 @@ class CoilTipVizGUI:
         except Exception:
             print(f"[FATAL] {msg}", file=sys.stderr)
 
-    # ---- UI 构建 ----
+    # ------------------------------------------------------------------
+    # UI 构建 (v2.0 - ttkbootstrap 布局)
+    # ------------------------------------------------------------------
     def _build_ui(self):
-        # 顶部工具栏
-        top = tk.Frame(self.root, height=80, bd=1, relief="raised")
-        top.pack(side="top", fill="x")
-        top.pack_propagate(False)
-        # 第一行: 文件选择 + 播放控制
-        row1 = tk.Frame(top)
-        row1.pack(side="top", fill="x", padx=4, pady=2)
-        tk.Button(row1, text="选择权重 (.pt)", command=self.on_choose_weight,
-                  bg="#FFE4B5").pack(side="left", padx=2)
-        tk.Button(row1, text="选择视频文件", command=self.on_choose_video_files,
-                  bg="#FFE4B5").pack(side="left", padx=2)
-        tk.Button(row1, text="选择视频文件夹", command=self.on_choose_folder).pack(side="left", padx=2)
-        tk.Button(row1, text="选择输出目录", command=self.on_choose_output_dir).pack(side="left", padx=2)
-        self.btn_run = tk.Button(row1, text="▶ 开始", command=self.on_toggle_run,
-                                 width=10, bg="#90EE90")
-        self.btn_run.pack(side="left", padx=8)
-        # conf 阈值调整 (实时改 self.detector.conf)
-        tk.Label(row1, text="conf ≥").pack(side="left", padx=(8, 2))
-        self.spn_conf = tk.Spinbox(
-            row1, from_=0.01, to=0.95, increment=0.05, width=5,
-            format="%.2f",
+        self._setup_styles()
+
+        # ---- 根容器: 2 行 grid ----
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(0, minsize=48)   # 顶部导航 48px
+        self.root.rowconfigure(1, minsize=1)    # 1px 分隔
+        self.root.rowconfigure(2, weight=1)     # 主体占满
+
+        # ============== 顶部导航 (48px) ==============
+        topnav = ttk.Frame(self.root, style="TopNav.TFrame", height=48)
+        topnav.grid(row=0, column=0, sticky="ew")
+        topnav.pack_propagate(False)
+        topnav.columnconfigure(0, minsize=280)
+        topnav.columnconfigure(1, weight=1)
+        topnav.columnconfigure(2, minsize=280)
+
+        # 左侧品牌
+        brand_box = ttk.Frame(topnav, style="TopNav.TFrame")
+        brand_box.grid(row=0, column=0, sticky="w", padx=16)
+        ttk.Label(brand_box, text="钢卷头尾检测",
+                  style="Brand.TLabel").pack(side="left")
+        ttk.Label(brand_box, text="可视化工作台",
+                  style="Caption.TLabel").pack(side="left", padx=(8, 0))
+
+        # 中间单一 tab
+        tab_box = ttk.Frame(topnav, style="TopNav.TFrame")
+        tab_box.grid(row=0, column=1)
+        ttk.Label(tab_box, text="检测工作台",
+                  style="ActiveTab.TLabel").pack(pady=14)
+
+        # 右侧 conf + 设置
+        right_box = ttk.Frame(topnav, style="TopNav.TFrame")
+        right_box.grid(row=0, column=2, sticky="e", padx=16)
+        ttk.Label(right_box, text="推理阈值",
+                  style="Caption.TLabel").pack(side="left", padx=(0, 6))
+        self.spn_conf = ttk.Spinbox(
+            right_box, from_=0.01, to=0.95, increment=0.05, width=6,
+            format="%.2f", bootstyle="primary",
             command=self.on_conf_changed,
         )
-        self.spn_conf.delete(0, "end"); self.spn_conf.insert(0, f"{self.conf_thr:.2f}")
-        self.spn_conf.pack(side="left", padx=2)
-        # 绑定键盘修改 (Spinbox command 仅在点箭头触发; 键盘回车需手动绑)
+        self.spn_conf.delete(0, "end")
+        self.spn_conf.insert(0, f"{self.conf_thr:.2f}")
+        self.spn_conf.pack(side="left")
         self.spn_conf.bind("<Return>", lambda _e: self.on_conf_changed())
         self.spn_conf.bind("<FocusOut>", lambda _e: self.on_conf_changed())
-        # 第二行: 当前状态显示
-        row2 = tk.Frame(top)
-        row2.pack(side="top", fill="x", padx=4, pady=2)
-        self.lbl_weight = tk.Label(row2, text="权重: 加载中...", anchor="w",
-                                   font=("", 9), fg="blue")
-        self.lbl_weight.pack(side="left", padx=4)
-        self.lbl_output = tk.Label(row2, text=f"输出: {CAPTURE_ROOT}", anchor="w",
-                                   font=("", 9))
-        self.lbl_output.pack(side="left", padx=4)
-        self.lbl_video = tk.Label(row2, text="视频: 未选", anchor="w",
-                                  font=("", 9, "bold"))
-        self.lbl_video.pack(side="left", padx=4, fill="x", expand=True)
+        # 设置按钮 (聚焦 spn_conf, 不打开设置页)
+        ttk.Button(right_box, text="设置", bootstyle="link",
+                   command=self._focus_conf).pack(side="left", padx=(10, 0))
 
-        # 主体 (left list / center image / right panel)
-        body = tk.Frame(self.root)
-        body.pack(side="top", fill="both", expand=True)
+        # 1px 分隔 (Border 颜色)
+        sep = tk.Frame(self.root, height=1, bg=COLOR_BORDER, bd=0)
+        sep.grid(row=1, column=0, sticky="ew")
 
-        # ---- 左侧: 视频列表 ----
-        left = tk.Frame(body, bd=1, relief="sunken")
-        left.pack(side="left", fill="y")
-        tk.Label(left, text="视频列表", anchor="w").pack(side="top", fill="x")
-        self.lst_videos = tk.Listbox(left, width=30)
-        self.lst_videos.pack(side="left", fill="both", expand=True)
-        sb1 = tk.Scrollbar(left, command=self.lst_videos.yview)
-        sb1.pack(side="right", fill="y")
-        self.lst_videos.config(yscrollcommand=sb1.set)
-        self.lst_videos.bind("<<ListboxSelect>>", self.on_select_video)
+        # ============== 主体 (12px margin, 三列) ==============
+        body = ttk.Frame(self.root, style="App.TFrame")
+        body.grid(row=2, column=0, sticky="nsew", padx=12, pady=12)
+        body.columnconfigure(0, minsize=280)
+        body.columnconfigure(1, weight=1, minsize=480)
+        body.columnconfigure(2, minsize=280)
+        body.rowconfigure(0, weight=1)
 
-        # ---- 中央: 视频帧显示 ----
-        center = tk.Frame(body, bd=1, relief="sunken", bg="black")
-        center.pack(side="left", fill="both", expand=True)
-        self.lbl_image = tk.Label(center, bg="black", fg="white", text="(无视频)")
-        self.lbl_image.pack(expand=True, fill="both")
-
-        # ---- 右侧: 状态面板 ----
-        right = tk.Frame(body, width=300, bd=1, relief="sunken")
-        right.pack(side="right", fill="y")
-        right.pack_propagate(False)
-
-        # 状态信息
-        info = tk.Frame(right)
-        info.pack(side="top", fill="x", padx=4, pady=4)
-        tk.Label(info, text="状态", font=("", 10, "bold")).pack(anchor="w")
-        self.lbl_state = tk.Label(info, text="state: --", anchor="w")
-        self.lbl_state.pack(anchor="w")
-        self.lbl_sub = tk.Label(info, text="sub : --", anchor="w")
-        self.lbl_sub.pack(anchor="w")
-        self.lbl_fps = tk.Label(info, text="FPS: --", anchor="w")
-        self.lbl_fps.pack(anchor="w")
-        self.lbl_err = tk.Label(info, text="", fg="red", anchor="w",
-                                wraplength=280, justify="left")
-        self.lbl_err.pack(anchor="w", fill="x")
-
-        # 检测结果 (conf > CONF_HI)
-        det_frame = tk.Frame(right)
-        det_frame.pack(side="top", fill="both", expand=True, padx=4, pady=4)
-        tk.Label(det_frame, text=f"检测结果 (conf > {CONF_HI})", anchor="w").pack(fill="x")
-        self.lst_det = tk.Listbox(det_frame, height=8)
-        self.lst_det.pack(side="left", fill="both", expand=True)
-        sb2 = tk.Scrollbar(det_frame, command=self.lst_det.yview)
-        sb2.pack(side="right", fill="y")
-        self.lst_det.config(yscrollcommand=sb2.set)
-
-        # 截图列表
-        cap_frame = tk.Frame(right)
-        cap_frame.pack(side="top", fill="both", expand=True, padx=4, pady=4)
-        tk.Label(cap_frame, text="截图列表", anchor="w").pack(fill="x")
-        self.lst_cap = tk.Listbox(cap_frame, height=8)
-        self.lst_cap.pack(side="left", fill="both", expand=True)
-        sb3 = tk.Scrollbar(cap_frame, command=self.lst_cap.yview)
-        sb3.pack(side="right", fill="y")
-        self.lst_cap.config(yscrollcommand=sb3.set)
-
-        # 底部控制
-        bottom = tk.Frame(self.root, height=30, bd=1, relief="raised")
-        bottom.pack(side="bottom", fill="x")
-        bottom.pack_propagate(False)
-        self.btn_prev = tk.Button(bottom, text="上一段", command=self.on_prev_segment, width=10)
-        self.btn_prev.pack(side="left", padx=6, pady=2)
-        self.btn_next = tk.Button(bottom, text="下一段", command=self.on_next_segment, width=10)
-        self.btn_next.pack(side="left", padx=6, pady=2)
-        self.lbl_seg = tk.Label(bottom, text="段: --/--", anchor="w")
-        self.lbl_seg.pack(side="left", padx=12)
+        # ---- 左栏 ----
+        self._build_left_sidebar(body)
+        # ---- 中央卡 ----
+        self._build_center_card(body)
+        # ---- 右栏 ----
+        self._build_right_sidebar(body)
 
         # 窗口关闭
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+
+    # ---- 左栏 ----
+    def _build_left_sidebar(self, parent: ttk.Frame):
+        left = tk.Frame(parent, bg=COLOR_SIDEBAR_BG, width=280,
+                        highlightthickness=1, highlightbackground=COLOR_BORDER, bd=0)
+        left.grid(row=0, column=0, sticky="ns", padx=(0, 12))
+        left.pack_propagate(False)
+        left.columnconfigure(0, weight=1)
+
+        # 资源区 (固定高度)
+        res = tk.Frame(left, bg=COLOR_SIDEBAR_BG)
+        res.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 8))
+        res.columnconfigure(0, weight=1)
+
+        ttk.Label(res, text="资源", style="Sidebar.SectionTitle.TLabel").grid(
+            row=0, column=0, sticky="w", pady=(0, 8))
+
+        # 4 个全宽按钮 + meta 标签
+        ttk.Button(res, text="选择权重 (.pt)", bootstyle="secondary-outline",
+                   command=self.on_choose_weight).grid(
+            row=1, column=0, sticky="ew", pady=(0, 4))
+        # lbl_weight 用原生 tk.Label 保留 fg= 能力
+        self.lbl_weight = tk.Label(res, text="权重: 加载中...", anchor="w",
+                                   bg=COLOR_SIDEBAR_BG, fg=COLOR_INFO,
+                                   font=(FONT_FAMILY, 9), wraplength=252,
+                                   justify="left")
+        self.lbl_weight.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+
+        ttk.Button(res, text="选择视频文件", bootstyle="primary-outline",
+                   command=self.on_choose_video_files).grid(
+            row=3, column=0, sticky="ew", pady=(0, 8))
+
+        ttk.Button(res, text="选择视频文件夹", bootstyle="secondary-outline",
+                   command=self.on_choose_folder).grid(
+            row=4, column=0, sticky="ew", pady=(0, 8))
+
+        ttk.Button(res, text="选择输出目录", bootstyle="secondary-outline",
+                   command=self.on_choose_output_dir).grid(
+            row=5, column=0, sticky="ew", pady=(0, 4))
+        # lbl_output 用原生 tk.Label 保留 fg= 能力
+        self.lbl_output = tk.Label(res, text=f"输出: {CAPTURE_ROOT}", anchor="w",
+                                   bg=COLOR_SIDEBAR_BG, fg=COLOR_TEXT_PRIMARY,
+                                   font=(FONT_FAMILY, 9), wraplength=252,
+                                   justify="left")
+        self.lbl_output.grid(row=6, column=0, sticky="ew")
+
+        # 长路径 tooltip
+        _Tooltip(self.lbl_weight, lambda: self._full_weight_text())
+        _Tooltip(self.lbl_output, lambda: self._full_output_text())
+
+        # 视频列表区 (占满剩余高度)
+        list_section = tk.Frame(left, bg=COLOR_SIDEBAR_BG)
+        list_section.grid(row=1, column=0, sticky="nsew", padx=12, pady=(4, 12))
+        list_section.columnconfigure(0, weight=1)
+        list_section.rowconfigure(1, weight=1)
+        left.rowconfigure(1, weight=1)
+
+        # 标题行 + 计数
+        title_row = tk.Frame(list_section, bg=COLOR_SIDEBAR_BG)
+        title_row.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        title_row.columnconfigure(0, weight=1)
+        ttk.Label(title_row, text="视频列表",
+                  style="Sidebar.SectionTitle.TLabel").grid(row=0, column=0, sticky="w")
+        self.lbl_video_count = ttk.Label(title_row, text="0",
+                                         style="Sidebar.Caption.TLabel")
+        self.lbl_video_count.grid(row=0, column=1, sticky="e")
+
+        # 列表 + 滚动条 (保留原生 Listbox)
+        listbox_frame = tk.Frame(list_section, bg=COLOR_SIDEBAR_BG)
+        listbox_frame.grid(row=1, column=0, sticky="nsew")
+        listbox_frame.columnconfigure(0, weight=1)
+        listbox_frame.rowconfigure(0, weight=1)
+        self.lst_videos = tk.Listbox(
+            listbox_frame,
+            bg=COLOR_CARD_BG, fg=COLOR_TEXT_PRIMARY,
+            selectbackground=COLOR_SELECTED_BG, selectforeground=COLOR_ACCENT,
+            highlightthickness=0, bd=0, relief="flat",
+            font=(FONT_FAMILY, 11), activestyle="none", borderwidth=0,
+        )
+        self.lst_videos.grid(row=0, column=0, sticky="nsew")
+        try:
+            sb1 = ttk.Scrollbar(listbox_frame, bootstyle="secondary-round",
+                                command=self.lst_videos.yview)
+        except Exception:
+            sb1 = ttk.Scrollbar(listbox_frame, bootstyle="secondary",
+                                command=self.lst_videos.yview)
+        sb1.grid(row=0, column=1, sticky="ns")
+        self.lst_videos.config(yscrollcommand=sb1.set)
+        self.lst_videos.bind("<<ListboxSelect>>", self.on_select_video)
+
+    # ---- 中央卡 ----
+    def _build_center_card(self, parent: ttk.Frame):
+        # 外层用 tk.Frame 包裹, 提供 1px 边框 (ttk.Frame 边框跨平台不稳)
+        card_outer = tk.Frame(parent, bg=COLOR_BORDER, bd=0)
+        card_outer.grid(row=0, column=1, sticky="nsew", padx=6)
+        card_outer.columnconfigure(0, weight=1)
+        card_outer.rowconfigure(0, weight=1)
+
+        card = ttk.Frame(card_outer, style="Card.TFrame")
+        card.grid(row=0, column=0, sticky="nsew", padx=1, pady=1)
+        card.columnconfigure(0, weight=1)
+        card.rowconfigure(1, weight=1)  # 视频视口占据剩余空间
+
+        # ---- header 44px ----
+        header = ttk.Frame(card, style="Card.TFrame", height=44)
+        header.grid(row=0, column=0, sticky="ew")
+        header.pack_propagate(False)
+        header.columnconfigure(0, weight=1)
+        header.columnconfigure(1, weight=0)
+
+        ttk.Label(header, text="实时画面",
+                  style="Card.SectionTitle.TLabel").grid(
+            row=0, column=0, sticky="w", padx=16, pady=12)
+
+        # 段徽章 (放在 header 右侧)
+        self.lbl_seg = ttk.Label(header, text="段: --/--", style="SegmentBadge.TLabel")
+        self.lbl_seg.grid(row=0, column=1, sticky="e", padx=16, pady=10)
+
+        # 1px 分隔线 (Border 颜色, 在 header 下方)
+        sep_h = tk.Frame(card, height=1, bg=COLOR_BORDER, bd=0)
+        sep_h.grid(row=0, column=0, sticky="sew")  # 与 header 同 row, 贴底
+        # ↑ 上面这一行会与 header 重叠; 改用独立 row 放分隔线
+        # 调整: 用 after 重新布局
+        sep_h.lower()  # 放到最底层
+
+        # ---- 视频视口 ----
+        viewport = ttk.Frame(card, style="Video.TFrame")
+        viewport.grid(row=1, column=0, sticky="nsew")
+        viewport.columnconfigure(0, weight=1)
+        viewport.rowconfigure(0, weight=1)
+        self.lbl_image = ttk.Label(viewport, style="Video.TLabel",
+                                   anchor="center", text="尚未选择视频")
+        self.lbl_image.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+
+        # ---- 只读进度条 (4px, 仅镜像 frame/total) ----
+        self.progress_bar = ttk.Progressbar(
+            card, bootstyle="primary", mode="determinate",
+            maximum=100, value=0,
+        )
+        self.progress_bar.grid(row=2, column=0, sticky="ew")
+
+        # ---- 底部控制条 (56px) ----
+        controls = ttk.Frame(card, style="ControlBar.TFrame", height=56)
+        controls.grid(row=3, column=0, sticky="ew")
+        controls.pack_propagate(False)
+        controls.columnconfigure(0, weight=1)
+        controls.columnconfigure(1, weight=1)
+        controls.columnconfigure(2, weight=1)
+
+        # 居中按钮组
+        btn_cluster = ttk.Frame(controls, style="ControlBar.TFrame")
+        btn_cluster.grid(row=0, column=1)
+        self.btn_prev = ttk.Button(btn_cluster, text="上一段",
+                                   bootstyle="secondary-outline",
+                                   command=self.on_prev_segment, width=10)
+        self.btn_prev.pack(side="left", padx=(0, 8))
+        self.btn_run = ttk.Button(btn_cluster, text="▶ 开始",
+                                  bootstyle="primary",
+                                  command=self.on_toggle_run, width=14)
+        self.btn_run.pack(side="left", padx=8)
+        self.btn_next = ttk.Button(btn_cluster, text="下一段",
+                                   bootstyle="secondary-outline",
+                                   command=self.on_next_segment, width=10)
+        self.btn_next.pack(side="left", padx=(8, 0))
+
+    # ---- 右栏 ----
+    def _build_right_sidebar(self, parent: ttk.Frame):
+        right = tk.Frame(parent, bg=COLOR_SIDEBAR_BG, width=280,
+                         highlightthickness=1, highlightbackground=COLOR_BORDER, bd=0)
+        right.grid(row=0, column=2, sticky="ns", padx=(12, 0))
+        right.pack_propagate(False)
+        right.columnconfigure(0, weight=1)
+        right.rowconfigure(0, weight=0)  # 状态卡
+        right.rowconfigure(1, weight=1)  # 检测卡 (占满剩余)
+        right.rowconfigure(2, weight=1)  # 截图卡 (占满剩余)
+
+        self._build_status_card(right)
+        self._build_detection_card(right)
+        self._build_capture_card(right)
+
+    def _build_status_card(self, parent: tk.Frame):
+        card_outer = tk.Frame(parent, bg=COLOR_BORDER, bd=0)
+        card_outer.grid(row=0, column=0, sticky="nsew", pady=(0, 12))
+        card_outer.columnconfigure(0, weight=1)
+
+        card = ttk.Frame(card_outer, style="Card.TFrame")
+        card.grid(row=0, column=0, sticky="nsew", padx=1, pady=1)
+        card.columnconfigure(0, weight=1)
+
+        # 内边距通过 inner_frame 提供
+        inner = ttk.Frame(card, style="Card.TFrame")
+        inner.grid(row=0, column=0, sticky="nsew", padx=16, pady=16)
+        inner.columnconfigure(0, weight=1)
+        inner.columnconfigure(1, weight=1)
+
+        ttk.Label(inner, text="运行状态",
+                  style="Card.SectionTitle.TLabel").grid(
+            row=0, column=0, columnspan=2, sticky="w", pady=(0, 12))
+
+        # 状态徽章行 (canvas dot + ttk.Label)
+        badge_row = ttk.Frame(inner, style="Card.TFrame")
+        badge_row.grid(row=1, column=0, columnspan=2, sticky="w")
+        self.lbl_state_dot = tk.Canvas(badge_row, width=12, height=12,
+                                       bg=COLOR_CARD_BG,
+                                       highlightthickness=0, bd=0)
+        self.lbl_state_dot.pack(side="left", padx=(2, 8), pady=2)
+        self._draw_state_dot(COLOR_INFO)
+        self.lbl_state = ttk.Label(badge_row, text="state: --",
+                                   style="StatusBadge.Info.TLabel")
+        self.lbl_state.pack(side="left")
+
+        # KV 行: sub / FPS
+        self.lbl_sub = ttk.Label(inner, text="sub : --",
+                                 style="Secondary.TLabel")
+        self.lbl_sub.grid(row=2, column=0, sticky="w", pady=(12, 0))
+        self.lbl_fps = ttk.Label(inner, text="FPS: --",
+                                 style="Metric.TLabel")
+        self.lbl_fps.grid(row=2, column=1, sticky="e", pady=(12, 0))
+
+        # 当前视频 / 帧进度
+        ttk.Label(inner, text="当前视频 / 帧进度",
+                  style="Caption.TLabel").grid(
+            row=3, column=0, columnspan=2, sticky="w", pady=(12, 4))
+        self.lbl_video = ttk.Label(inner, text="当前: -- (请先选视频)",
+                                   style="Secondary.TLabel",
+                                   wraplength=244, justify="left")
+        self.lbl_video.grid(row=4, column=0, columnspan=2, sticky="ew")
+
+        # 错误提示条 (用单独容器以便空文本时收起视觉占位)
+        self.err_holder = ttk.Frame(inner, style="Card.TFrame")
+        self.err_holder.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(12, 0))
+        self.err_holder.columnconfigure(0, weight=1)
+        self.lbl_err = ttk.Label(self.err_holder, text="",
+                                 style="ErrorBanner.TLabel",
+                                 wraplength=228, justify="left")
+        # 初始空文本: 隐藏视觉占位
+        self.err_holder.grid_remove()
+
+    def _build_detection_card(self, parent: tk.Frame):
+        card_outer = tk.Frame(parent, bg=COLOR_BORDER, bd=0)
+        card_outer.grid(row=1, column=0, sticky="nsew", pady=(0, 12))
+        card_outer.columnconfigure(0, weight=1)
+        card_outer.rowconfigure(0, weight=1)
+
+        card = ttk.Frame(card_outer, style="Card.TFrame")
+        card.grid(row=0, column=0, sticky="nsew", padx=1, pady=1)
+        card.columnconfigure(0, weight=1)
+        card.rowconfigure(1, weight=1)
+
+        # 标题行: "高置信检测" + caption "> 0.50"
+        title_row = ttk.Frame(card, style="Card.TFrame")
+        title_row.grid(row=0, column=0, sticky="ew", padx=16, pady=(12, 8))
+        title_row.columnconfigure(0, weight=1)
+        ttk.Label(title_row, text="高置信检测",
+                  style="Card.SectionTitle.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(title_row, text="> 0.50",
+                  style="Caption.TLabel").grid(row=0, column=1, sticky="e")
+
+        # 列表 (保留 tk.Listbox)
+        list_frame = ttk.Frame(card, style="Card.TFrame")
+        list_frame.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
+        list_frame.columnconfigure(0, weight=1)
+        list_frame.rowconfigure(0, weight=1)
+        self.lst_det = tk.Listbox(
+            list_frame,
+            bg=COLOR_CARD_BG, fg=COLOR_TEXT_PRIMARY,
+            selectbackground=COLOR_SELECTED_BG, selectforeground=COLOR_ACCENT,
+            highlightthickness=0, bd=0, relief="flat",
+            font=(FONT_FAMILY_MONO, 9), activestyle="none", borderwidth=0,
+        )
+        self.lst_det.grid(row=0, column=0, sticky="nsew")
+        try:
+            sb2 = ttk.Scrollbar(list_frame, bootstyle="secondary-round",
+                                command=self.lst_det.yview)
+        except Exception:
+            sb2 = ttk.Scrollbar(list_frame, bootstyle="secondary",
+                                command=self.lst_det.yview)
+        sb2.grid(row=0, column=1, sticky="ns")
+        self.lst_det.config(yscrollcommand=sb2.set)
+
+    def _build_capture_card(self, parent: tk.Frame):
+        card_outer = tk.Frame(parent, bg=COLOR_BORDER, bd=0)
+        card_outer.grid(row=2, column=0, sticky="nsew")
+        card_outer.columnconfigure(0, weight=1)
+        card_outer.rowconfigure(0, weight=1)
+
+        card = ttk.Frame(card_outer, style="Card.TFrame")
+        card.grid(row=0, column=0, sticky="nsew", padx=1, pady=1)
+        card.columnconfigure(0, weight=1)
+        card.rowconfigure(1, weight=1)
+
+        ttk.Label(card, text="截图列表",
+                  style="Card.SectionTitle.TLabel").grid(
+            row=0, column=0, sticky="w", padx=16, pady=(12, 8))
+
+        list_frame = ttk.Frame(card, style="Card.TFrame")
+        list_frame.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
+        list_frame.columnconfigure(0, weight=1)
+        list_frame.rowconfigure(0, weight=1)
+        self.lst_cap = tk.Listbox(
+            list_frame,
+            bg=COLOR_CARD_BG, fg=COLOR_TEXT_PRIMARY,
+            selectbackground=COLOR_SELECTED_BG, selectforeground=COLOR_ACCENT,
+            highlightthickness=0, bd=0, relief="flat",
+            font=(FONT_FAMILY, 9), activestyle="none", borderwidth=0,
+        )
+        self.lst_cap.grid(row=0, column=0, sticky="nsew")
+        try:
+            sb3 = ttk.Scrollbar(list_frame, bootstyle="secondary-round",
+                                command=self.lst_cap.yview)
+        except Exception:
+            sb3 = ttk.Scrollbar(list_frame, bootstyle="secondary",
+                                command=self.lst_cap.yview)
+        sb3.grid(row=0, column=1, sticky="ns")
+        self.lst_cap.config(yscrollcommand=sb3.set)
+
+    # ------------------------------------------------------------------
+    # 工具方法
+    # ------------------------------------------------------------------
+    def _draw_state_dot(self, color: str):
+        """在 lbl_state_dot 上画一个 10px 实心圆."""
+        self.lbl_state_dot.delete("all")
+        # 12x12 canvas, 画一个 r=5 圆点居中
+        self.lbl_state_dot.create_oval(1, 1, 11, 11, fill=color, outline=color)
+
+    def _refresh_state_indicator(self):
+        """根据 self._current_state_key 同步徽章颜色与样式."""
+        key = self._current_state_key
+        if key == "STABLE":
+            style_name = "StatusBadge.Success.TLabel"
+            color = COLOR_SUCCESS
+        elif key == "CHANGE":
+            style_name = "StatusBadge.Warning.TLabel"
+            color = COLOR_WARNING
+        elif key == "ERR":
+            style_name = "StatusBadge.Error.TLabel"
+            color = COLOR_ERROR
+        else:
+            style_name = "StatusBadge.Info.TLabel"
+            color = COLOR_INFO
+        try:
+            self.lbl_state.configure(style=style_name)
+        except Exception:
+            pass
+        self._draw_state_dot(color)
+
+    def _focus_conf(self):
+        """设置按钮: 仅聚焦 spn_conf, 不打开新设置页."""
+        try:
+            self.spn_conf.focus_set()
+            self.spn_conf.select_range(0, "end")
+        except Exception:
+            pass
+
+    def _full_weight_text(self) -> str:
+        if self.weight_path:
+            return self.weight_path
+        if self.detector is not None and getattr(self.detector, "model_path", None):
+            return str(self.detector.model_path)
+        return ""
+
+    def _full_output_text(self) -> str:
+        return self.output_dir or ""
 
     # ------------------------------------------------------------------
     # 显示辅助
     # ------------------------------------------------------------------
     def _set_error(self, msg: str):
         self.lbl_err.config(text=msg)
+        # 空文本时收起视觉占位 (提示条只占需时空间)
+        if msg:
+            try:
+                self.err_holder.grid()
+            except Exception:
+                pass
+        else:
+            try:
+                self.err_holder.grid_remove()
+            except Exception:
+                pass
 
     def _set_video_label(self, name: str, frame_idx: int, total: int, proc_fps: float):
         if total > 0:
             pct = frame_idx * 100.0 / total
             self.lbl_video.config(
                 text=f"当前: {name}   [{frame_idx}/{total}] {pct:.1f}%   proc-FPS={proc_fps:.1f}")
+            # 同步进度条
+            try:
+                self.progress_bar['value'] = max(0.0, min(100.0, pct))
+            except Exception:
+                pass
         else:
             self.lbl_video.config(
                 text=f"当前: {name}   [{frame_idx}]   proc-FPS={proc_fps:.1f}")
+            try:
+                self.progress_bar['value'] = 0
+            except Exception:
+                pass
 
     def _set_seg_label(self):
         if self.current_segment_idx >= 0:
@@ -348,8 +878,17 @@ class CoilTipVizGUI:
         if self.detector is not None:
             self.detector.conf = new_val
         self.lbl_state.config(text=f"state: -- conf≥{new_val:.2f}")
+        # 临时状态: 用 INFO 配色
+        self._current_state_key = "INIT"
+        self._refresh_state_indicator()
         # 1 秒后还原 state label (避免盖掉下一帧真实状态)
-        self.root.after(1000, lambda: self.lbl_state.config(text="state: --"))
+        self.root.after(1000, lambda: self._restore_state_label())
+
+    def _restore_state_label(self):
+        """on_conf_changed 1 秒后还原 lbl_state 文案与徽章."""
+        self.lbl_state.config(text="state: --")
+        self._current_state_key = "INIT"
+        self._refresh_state_indicator()
 
     def on_choose_video_files(self):
         """弹出文件对话框选 1 个或多个视频文件"""
@@ -365,6 +904,11 @@ class CoilTipVizGUI:
         self.lst_videos.delete(0, tk.END)
         for p in self.video_paths:
             self.lst_videos.insert(tk.END, os.path.basename(p))
+        # 同步计数
+        try:
+            self.lbl_video_count.config(text=str(len(self.video_paths)))
+        except Exception:
+            pass
         self._set_error("")
         if len(self.video_paths) == 1:
             name = os.path.basename(self.video_paths[0])
@@ -396,6 +940,11 @@ class CoilTipVizGUI:
         self.lst_videos.delete(0, tk.END)
         for p in files:
             self.lst_videos.insert(tk.END, os.path.basename(p))
+        # 同步计数
+        try:
+            self.lbl_video_count.config(text=str(len(files)))
+        except Exception:
+            pass
         if not files:
             self._set_error(f"未在该目录下找到视频: {folder}")
             self.lbl_video.config(text="视频: 未选 (目录无视频)")
@@ -429,6 +978,14 @@ class CoilTipVizGUI:
 
         self.running = not self.running
         self.btn_run.config(text="暂停" if self.running else "开始")
+        # 运行时切到 amber/outline
+        try:
+            if self.running:
+                self.btn_run.configure(bootstyle="warning-outline")
+            else:
+                self.btn_run.configure(bootstyle="primary")
+        except Exception:
+            pass
         if self.running:
             self._start_worker()
         else:
@@ -486,6 +1043,10 @@ class CoilTipVizGUI:
             self.worker.join(timeout=1.5)
         self.running = False
         self.btn_run.config(text="开始")
+        try:
+            self.btn_run.configure(bootstyle="primary")
+        except Exception:
+            pass
         self.target_segment_idx = -1  # 取消未执行的跳转
 
     def _reset_for_new_video(self):
@@ -496,12 +1057,19 @@ class CoilTipVizGUI:
         self.current_segment_idx = -1
         self.target_segment_idx = -1
         self.lbl_state.config(text="state: --")
+        self._current_state_key = "INIT"
+        self._refresh_state_indicator()
         self.lbl_sub.config(text="sub : --")
         self.lbl_fps.config(text="FPS: --")
         self._set_seg_label()
         self._set_error("")
         self.lbl_image.config(image="", text="(无视频)")
         self._photo_ref = None
+        # 进度条归零
+        try:
+            self.progress_bar['value'] = 0
+        except Exception:
+            pass
         if self.fd_proc is not None:
             # 清空 detector/capture 内部状态 (set_video_name 留给 worker)
             try:
@@ -716,6 +1284,9 @@ class CoilTipVizGUI:
             self._photo_ref = photo  # 防 GC
 
             self.lbl_state.config(text=f"state: {msg['state']}")
+            # 同步状态徽章颜色 (使用 message 中的 state)
+            self._current_state_key = msg['state']
+            self._refresh_state_indicator()
             self.lbl_sub.config(text=f"sub : {msg['sub_state']}")
             self.lbl_fps.config(
                 text=f"FPS: 原 {msg['fps_native']:.1f} / 处理 {msg['proc_fps']:.1f}")
@@ -770,9 +1341,9 @@ class CoilTipVizGUI:
 # 入口
 # ----------------------------------------------------------------------
 def main():
-    root = tk.Tk()
-    app = CoilTipVizGUI(root)
-    root.mainloop()
+    app = ttk.Window(themename="cosmo")
+    CoilTipVizGUI(app)
+    app.mainloop()
 
 
 if __name__ == "__main__":

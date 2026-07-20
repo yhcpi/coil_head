@@ -18,17 +18,22 @@ print(f"[build_exe.py] repo_root={REPO_ROOT}")
 
 
 def find_weights() -> Path:
-    """Locate deploy weights. Placeholder counts as fallback (CI case)."""
+    """Locate deploy weights in priority order:
+
+    1. v26 mid-strong full 300ep best.pt (F1=0.9359 SOTA, 8MB)
+    2. v18_3 hard neg weak aug pt (F1=0.9286 legacy SOTA, 32MB)
+    3. placeholder.pt (CI-only fallback when repo has no real weights)
+    """
     candidates = [
-        REPO_ROOT / "runs" / "deploy_best" / "v18_3_epoch60_hard_neg_weak_aug.pt",
         REPO_ROOT / "runs" / "coil_panet_ablation" / "v26_mid_strong_full_300ep" / "weights" / "best.pt",
+        REPO_ROOT / "runs" / "deploy_best" / "v18_3_epoch60_hard_neg_weak_aug.pt",
         REPO_ROOT / "runs" / "deploy_best" / "placeholder.pt",
     ]
     for p in candidates:
         if p.exists():
             print(f"[OK] Weights: {p}")
             return p
-    raise FileNotFoundError("No weights file found (tried v18.3, v26, placeholder)")
+    raise FileNotFoundError("No weights file found (tried v26 SOTA, v18.3 legacy, placeholder)")
 
 
 def main() -> int:

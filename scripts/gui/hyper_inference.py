@@ -17,8 +17,12 @@ import numpy as np
 # 项目根 = hyper_inference.py 的祖父目录 (scripts/gui/ -> scripts/ -> root)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-# 默认权重候选 (按优先级)
-DEFAULT_DEPLOY_PT = PROJECT_ROOT / "runs" / "deploy_best" / "v18_3_epoch60_hard_neg_weak_aug.pt"
+# 默认权重候选 (按优先级) — 部署 SOTA 自动更新
+#   v26 mid-strong full 300ep: F1=0.9359 (2026-07-20 SOTA) — 8MB
+#   v18.3 hard neg weak aug : F1=0.9286 (历史 SOTA 备份)  — 32MB
+#   Hyper-YOLO baseline      : 通用 base
+DEFAULT_DEPLOY_PT = PROJECT_ROOT / "runs" / "coil_panet_ablation" / "v26_mid_strong_full_300ep" / "weights" / "best.pt"
+LEGACY_DEPLOY_PT = PROJECT_ROOT / "runs" / "deploy_best" / "v18_3_epoch60_hard_neg_weak_aug.pt"
 FALLBACK_PT = PROJECT_ROOT / "repos" / "Hyper-YOLO" / "hyper-yolon.pt"
 
 
@@ -57,23 +61,24 @@ def _resolve_model_path(model_path: Optional[str]) -> Path:
             f"  部署权重候选: {DEFAULT_DEPLOY_PT}\n"
             f"  fallback 候选: {FALLBACK_PT}"
         )
-    # 缺省: 部署权重 → fallback
-    if DEFAULT_DEPLOY_PT.is_file():
-        return DEFAULT_DEPLOY_PT
-    if FALLBACK_PT.is_file():
-        return FALLBACK_PT
+    # 缺省: 部署 SOTA → 历史 SOTA → fallback
+    for cand in (DEFAULT_DEPLOY_PT, LEGACY_DEPLOY_PT, FALLBACK_PT):
+        if cand.is_file():
+            return cand
     raise FileNotFoundError(
         "[HyperYoloDetector] 未找到任何可用权重:\n"
-        f"  - 部署权重: {DEFAULT_DEPLOY_PT}\n"
+        f"  - 部署 SOTA : {DEFAULT_DEPLOY_PT}\n"
+        f"  - 历史 SOTA: {LEGACY_DEPLOY_PT}\n"
         f"  - fallback : {FALLBACK_PT}\n"
         "请先训练或下载 hyper-yolon.pt。"
     )
 
 
 class HyperYoloDetector:
-    """单类钢卷头/尾检测器 (Hyper-YOLON + NWD v18.3 部署权重)。
+    """单类钢卷头/尾检测器 (默认加载部署 SOTA: v26 mid-strong full 300ep)。
 
-    - 默认权重: runs/deploy_best/v18_3_epoch60_hard_neg_weak_aug.pt
+    - 默认权重: runs/coil_panet_ablation/v26_mid_strong_full_300ep/weights/best.pt (F1=0.9359)
+    - 历史 SOTA: runs/deploy_best/v18_3_epoch60_hard_neg_weak_aug.pt (F1=0.9286)
     - 缺省/缺失 → 回退 repos/Hyper-YOLO/hyper-yolon.pt
     - 不使用 cfg= 参数 (兼容 8.0.227 / 8.3+)
     """
