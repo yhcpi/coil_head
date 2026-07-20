@@ -40,10 +40,11 @@ jobs:
         run: |
           python -c "import ultralytics; import cv2; import av; import PIL; import PyInstaller; print('All deps OK')"
 
-      - name: Create weights directory (if not present)
+      - name: Create placeholder weights (so PyInstaller always has a file to bundle)
         shell: cmd
         run: |
           if not exist runs\deploy_best mkdir runs\deploy_best
+          if not exist runs\deploy_best\placeholder.pt type nul > runs\deploy_best\placeholder.pt
           if not exist runs\coil_panet_ablation mkdir runs\coil_panet_ablation
 
       - name: Run PyInstaller

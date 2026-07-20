@@ -67,24 +67,22 @@ if exist build rmdir /s /q build
 if exist dist  rmdir /s /q dist
 if exist CoilTipViz.spec del /q CoilTipViz.spec
 
-REM ---- Step 4: Find weights (try v18.3 deploy, then v26) ----
+REM ---- Step 4: Find weights (try v18.3 deploy, then v26, then placeholder) ----
 set WEIGHTS=
 for %%W in (
     "..\..\runs\deploy_best\v18_3_epoch60_hard_neg_weak_aug.pt"
     "..\..\runs\coil_panet_ablation\v26_mid_strong_full_300ep\weights\best.pt"
+    "..\..\runs\deploy_best\placeholder.pt"
 ) do (
     if "!WEIGHTS!"=="" if exist %%W set WEIGHTS=%%~W
 )
 
-REM If weights missing (e.g. CI build without LFS weights), skip packaging them.
-REM End user will pick .pt via GUI's "Select Weight" button on first run.
-set WEIGHTS_ARG=
-if not "!WEIGHTS!"=="" (
-    set WEIGHTS_ARG=--add-data "!WEIGHTS!;weights" ^
-    echo [OK] Weights: !WEIGHTS!
-) else (
-    echo [WARN] No deploy weights found - GUI will prompt to pick one on first run.
+if "!WEIGHTS!"=="" (
+    echo [WARN] No weights found - PyInstaller would fail. Aborting.
+    pause
+    exit /b 1
 )
+echo [OK] Weights: !WEIGHTS!
 
 REM ---- Step 5: Package (this takes 5-10 minutes) ----
 echo [3/4] PyInstaller packaging (5-10 minutes, do not close this window)...
@@ -106,7 +104,7 @@ echo [3/4] PyInstaller packaging (5-10 minutes, do not close this window)...
     --add-data "%~dp0framediff\frame_diff_detector.py;framediff" ^
     --add-data "%~dp0framediff\change_capture.py;framediff" ^
     --add-data "%~dp0framediff\pyav_reader.py;framediff" ^
-    !WEIGHTS_ARG!
+    --add-data "!WEIGHTS!;weights" ^
     "%~dp0coil_tip_viz_gui.py"
 
 if errorlevel 1 (
