@@ -49,15 +49,15 @@ jobs:
 
       - name: Run PyInstaller
         id: pyinstaller
-        shell: cmd
+        shell: pwsh
         run: |
-          cd scripts\gui
-          build_exe.bat > pyinstaller.log 2>&1
-          echo EXIT_CODE=%ERRORLEVEL% >> pyinstaller.log
-          echo === TAIL OF LOG === >> pyinstaller.log
-          powershell -NoProfile -Command "Get-Content pyinstaller.log -Tail 100" >> pyinstaller.log
-          type pyinstaller.log
-          exit /b %ERRORLEVEL%
+          cd scripts/gui
+          python build_exe.py 2>&1 | Tee-Object -FilePath pyinstaller.log
+          echo "EXIT_CODE=$LASTEXITCODE" | Out-File -Append pyinstaller.log
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content pyinstaller.log -Tail 100 | Out-File -Append pyinstaller.log
+          }
+          exit $LASTEXITCODE
         env:
           PYTHONIOENCODING: utf-8
 
