@@ -41,17 +41,35 @@ jobs:
           python -c "import ultralytics; import cv2; import av; import PIL; import PyInstaller; print('All deps OK')"
 
       - name: Create weights directory (if not present)
+        shell: cmd
         run: |
           if not exist runs\deploy_best mkdir runs\deploy_best
           if not exist runs\coil_panet_ablation mkdir runs\coil_panet_ablation
 
       - name: Run PyInstaller
+        id: pyinstaller
         shell: cmd
         run: |
           cd scripts\gui
           build_exe.bat
         env:
           PYTHONIOENCODING: utf-8
+
+      - name: On-failure diagnostic (public summary)
+        if: failure()
+        shell: pwsh
+        run: |
+          "## PyInstaller build failed" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          "" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          "### Environment" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          "- Python: $(python --version 2>&1)" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          "- Working dir: $(Get-Location)" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          "- Disk free: $((Get-PSDrive C).Free / 1GB) GB" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          "" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          "### Files" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          Get-ChildItem scripts\gui\build_exe.bat, scripts\gui\coil_tip_viz_gui.py, scripts\gui\framediff\*.py -ErrorAction SilentlyContinue |
+            Select-Object FullName, Length |
+            Format-Table -AutoSize | Out-String | Out-File -Append $env:GITHUB_STEP_SUMMARY
 
       - name: Zip artifact
         shell: pwsh
