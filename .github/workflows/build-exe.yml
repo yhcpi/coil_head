@@ -70,12 +70,11 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-      - name: Zip artifact
-        shell: pwsh
+      - name: Zip artifact (via Python, robust for 1.5GB+)
+        shell: cmd
         run: |
-          cd scripts/gui/dist
-          Compress-Archive -Path CoilTipViz -DestinationPath CoilTipViz-${{ github.sha }}.zip -Force
-          ls -la CoilTipViz-${{ github.sha }}.zip
+          cd scripts\gui\dist
+          python -c "import zipfile, os; zf = zipfile.ZipFile('CoilTipViz-${{ github.sha }}.zip', 'w', zipfile.ZIP_DEFLATED, compresslevel=6); root='CoilTipViz'; [zf.write(os.path.join(r,f), os.path.join(r,f).replace(os.sep,'/')) for r,_,fs in os.walk(root) for f in fs]; zf.close(); print('zip OK:', os.path.getsize('CoilTipViz-${{ github.sha }}.zip')//1024//1024, 'MB')"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
