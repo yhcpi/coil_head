@@ -18,26 +18,52 @@ import numpy as np
 # 项目根 = hyper_inference.py 的祖父目录 (scripts/gui/ -> scripts/ -> root)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-# ----- PyInstaller bundle 支持 -----
-# 在 .exe 运行时，weights 文件被 --add-data "weights;weights" 打到 sys._MEIPASS/weights/best.pt
-# 但 PROJECT_ROOT 在 .exe 里指向用户解压目录（不是 _internal/），所以要走 sys._MEIPASS
-if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
-    BUNDLE_ROOT = Path(sys._MEIPASS)
-    BUNDLE_WEIGHTS = BUNDLE_ROOT / "weights" / "best.pt"
-else:
-    BUNDLE_ROOT = None
-    BUNDLE_WEIGHTS = None
-
-# 默认权重候选 (按优先级)
-#   在 .exe 里: sys._MEIPASS/weights/best.pt  (PyInstaller --add-data "weights;weights")
-#   在源码里: PROJECT_ROOT/runs/coil_panet_ablation/v26_mid_strong_full_300ep/weights/best.pt
-DEFAULT_DEPLOY_PT = (
-    BUNDLE_WEIGHTS
-    if BUNDLE_WEIGHTS is not None
-    else PROJECT_ROOT / "runs" / "coil_panet_ablation" / "v26_mid_strong_full_300ep" / "weights" / "best.pt"
+# ----- 默认 SOTA 权重解析 -----
+# 单一来源: v26 mid-strong full 300ep best.pt (F1=0.9359, 8MB)
+# - 在 PyInstaller .exe 里: sys._MEIPASS/weights/best.pt
+#   (build_exe.py 先 stage 权重到 _staged_best.pt, 再 --add-data "...;weights/" 放成 best.pt)
+# - 在源码里: PROJECT_ROOT/runs/coil_panet_ablation/.../best.pt
+SOURCE_DEPLOY_PT = (
+    PROJECT_ROOT / "runs" / "coil_panet_ablation" / "v26_mid_strong_full_300ep" / "weights" / "best.pt"
 )
-LEGACY_DEPLOY_PT = PROJECT_ROOT / "runs" / "deploy_best" / "v18_3_epoch60_hard_neg_weak_aug.pt"
-FALLBACK_PT = PROJECT_ROOT / "repos" / "Hyper-YOLO" / "hyper-yolon.pt"
+
+# ----- PyInstaller bundle 支持 -----
+def _find_bundle_weight(bundle_root: Path) -> Optional[Path]:
+    """在 PyInstaller bundle 里找唯一的 SOTA 权重 (≥1MB)。
+
+    build_exe.py 把 stage 后的 best.pt 放到 _internal/weights/best.pt。
+    为了兼容不同 PyInstaller 版本，也 glob 整个 weights/ 目录里的 *.pt。
+    """
+    if not (bundle_root / "weights").exists():
+        return None
+    weights_dir = bundle_root / "weights"
+    # 优先精确匹配
+    exact = weights_dir / "best.pt"
+    if exact.is_file() and exact.stat().st_size >= 1024 * 1024:
+        return exact
+    # fallback: 任何 ≥1MB .pt
+    candidates = sorted(
+        [p for p in weights_dir.glob("*.pt") if p.stat().st_size >= 1024 * 1024],
+        key=lambda p: -p.stat().st_size,  # 最大的优先
+    )
+    return candidates[0] if candidates else None
+
+
+def _resolve_default_deploy_pt() -> Optional[Path]:
+    """返回第一个真实存在的 SOTA 权重:
+    1) PyInstaller bundle: sys._MEIPASS/weights/best.pt (或 glob)
+    2) 源码: PROJECT_ROOT/runs/.../best.pt
+    """
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        bundle_w = _find_bundle_weight(Path(sys._MEIPASS))
+        if bundle_w:
+            return bundle_w
+    if SOURCE_DEPLOY_PT.is_file() and SOURCE_DEPLOY_PT.stat().st_size >= 1024 * 1024:
+        return SOURCE_DEPLOY_PT
+    return None
+
+
+DEFAULT_DEPLOY_PT = _resolve_default_deploy_pt()
 
 
 def _resolve_device(device: Union[str, int]) -> str:
@@ -76,10 +102,11 @@ def _is_valid_weight_file(p: Path) -> bool:
 
 
 def _resolve_model_path(model_path: Optional[str]) -> Path:
-    """缺省/不存在时自动 fallback 到历史 SOTA → hyper-yolon.pt。
+    """解析最终要加载的模型权重路径。
 
-    - 用户显式给的路径 → 校验必须存在且 ≥1MB，否则抛 FileNotFoundError（不静默 fallback）
-    - 缺省：依次尝试 部署 SOTA (.exe:_MEIPASS/weights/best.pt / 源码:runs/...) → 历史 SOTA → fallback
+    - 用户显式给了路径 → 必须存在且 ≥1MB；否则抛 FileNotFoundError
+    - 缺省：用模块顶层算好的 DEFAULT_DEPLOY_PT (.exe bundle / 源码都支持)
+      没找到 → 抛 FileNotFoundError 提示明确原因
     """
     if model_path:
         p = Path(model_path)
@@ -87,28 +114,24 @@ def _resolve_model_path(model_path: Optional[str]) -> Path:
             p = PROJECT_ROOT / p
         if _is_valid_weight_file(p):
             return p
-        # 用户显式给了路径但找不到或太小 → 不静默 fallback
         if p.is_file():
             size = p.stat().st_size
             raise FileNotFoundError(
                 f"[HyperYoloDetector] 指定的权重文件存在但太小 (<1MB, 可能是 placeholder/损坏):\n"
                 f"  路径: {p}\n"
-                f"  大小: {size} bytes\n\n"
-                "请手动选一个真实的 v18.3 或 v26 .pt 文件。"
+                f"  大小: {size} bytes\n"
             )
         raise FileNotFoundError(
-            f"[HyperYoloDetector] 指定的模型权重不存在:\n"
-            f"  路径: {p}\n"
+            f"[HyperYoloDetector] 指定的模型权重不存在:\n  路径: {p}\n"
         )
-    # 缺省: 部署 SOTA → 历史 SOTA → fallback
-    for cand in (DEFAULT_DEPLOY_PT, LEGACY_DEPLOY_PT, FALLBACK_PT):
-        if _is_valid_weight_file(cand):
-            return cand
+    # 缺省: 运行时重新解析 (不用模块顶部缓存, 因为 DEFAULT_DEPLOY_PT 在 import 时算, 文件可能后续变)
+    runtime_pt = _resolve_default_deploy_pt()
+    if runtime_pt is not None and _is_valid_weight_file(runtime_pt):
+        return runtime_pt
     raise FileNotFoundError(
-        "[HyperYoloDetector] 自动 fallback 也未找到任何 ≥1MB 权重:\n"
-        f"  - 部署 SOTA : {DEFAULT_DEPLOY_PT}\n"
-        f"  - 历史 SOTA: {LEGACY_DEPLOY_PT}\n"
-        f"  - fallback : {FALLBACK_PT}\n\n"
+        "[HyperYoloDetector] 默认 SOTA 权重未找到 (>=1MB):\n"
+        f"  - PyInstaller bundle: {Path(sys._MEIPASS) / 'weights' if hasattr(sys, '_MEIPASS') else 'N/A'}\n"
+        f"  - 源码路径: {SOURCE_DEPLOY_PT}\n\n"
         "请手动选择 .pt 文件。"
     )
 
@@ -116,15 +139,15 @@ def _resolve_model_path(model_path: Optional[str]) -> Path:
 class HyperYoloDetector:
     """单类钢卷头/尾检测器 (默认加载部署 SOTA: v26 mid-strong full 300ep)。
 
-    - 默认权重: runs/coil_panet_ablation/v26_mid_strong_full_300ep/weights/best.pt (F1=0.9359)
-    - 历史 SOTA: runs/deploy_best/v18_3_epoch60_hard_neg_weak_aug.pt (F1=0.9286)
-    - 缺省/缺失 → 回退 repos/Hyper-YOLO/hyper-yolon.pt
-    - 不使用 cfg= 参数 (兼容 8.0.227 / 8.3+)
+    - 默认权重: v26 best.pt, F1=0.9359, 8MB
+    - .exe 里: _internal/weights/best.pt
+    - 源码里: runs/coil_panet_ablation/v26_mid_strong_full_300ep/weights/best.pt
+    - 不使用 cfg= 参数 (兼容 ultralytics 8.0.227 / 8.3+)
     """
 
     def __init__(
         self,
-        model_path: Optional[str] = None,  # None → 自动 fallback 链 (部署 SOTA → 历史 SOTA → base)
+        model_path: Optional[str] = None,  # None → 自动用 DEFAULT_DEPLOY_PT
         conf: float = 0.15,
         imgsz: int = 1024,
         device: str = "0",

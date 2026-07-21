@@ -22,6 +22,8 @@ inspect/
 # Model weights (release separately)
 *.pt
 !repos/Hyper-YOLO/yolov8n.pt
+# Exception: commit deploy SOTA so CI bundles real weights (8MB)
+!runs/coil_panet_ablation/v26_mid_strong_full_300ep/weights/best.pt
 *.onnx
 *.engine
 *.torchscript

@@ -18,28 +18,38 @@ print(f"[build_exe.py] repo_root={REPO_ROOT}")
 
 
 def find_weights() -> Path:
-    """Locate deploy weights in priority order:
+    """Locate deploy SOTA weight (only v26, no legacy/fallback chain).
 
-    1. v26 mid-strong full 300ep best.pt (F1=0.9359 SOTA, 8MB)
-    2. v18_3 hard neg weak aug pt (F1=0.9286 legacy SOTA, 32MB)
-    3. placeholder.pt — REJECTED in real build, CI must force-import a real .pt
+    Returns the single real .pt that will be bundled into the .exe.
     """
-    candidates = [
-        REPO_ROOT / "runs" / "coil_panet_ablation" / "v26_mid_strong_full_300ep" / "weights" / "best.pt",
-        REPO_ROOT / "runs" / "deploy_best" / "v18_3_epoch60_hard_neg_weak_aug.pt",
-    ]
-    for p in candidates:
-        if p.exists() and p.stat().st_size > 1024 * 1024:
-            print(f"[OK] Weights: {p}  ({p.stat().st_size//1024//1024} MB)")
-            return p
-    # 真实权重一个都没有 → 失败，不打包 placeholder（否则 .exe 启动 ultralytics 必崩）
-    raise FileNotFoundError(
-        "No real weights found (≥1MB required).\n"
-        f"  Searched:\n"
-        f"    - {REPO_ROOT / 'runs' / 'coil_panet_ablation' / 'v26_mid_strong_full_300ep' / 'weights' / 'best.pt'}\n"
-        f"    - {REPO_ROOT / 'runs' / 'deploy_best' / 'v18_3_epoch60_hard_neg_weak_aug.pt'}\n"
-        "  Placeholder (0-byte) is NOT bundled — would cause 'NoneType has no attribute encoding'."
+    primary = (
+        REPO_ROOT / "runs" / "coil_panet_ablation" / "v26_mid_strong_full_300ep" / "weights" / "best.pt"
     )
+    if primary.exists() and primary.stat().st_size > 1024 * 1024:
+        print(f"[OK] Weights: {primary}  ({primary.stat().st_size//1024//1024} MB)")
+        return primary
+    raise FileNotFoundError(
+        f"v26 deploy SOTA weight missing or too small:\n"
+        f"  {primary}\n\n"
+        f"Either:\n"
+        f"  - Run scripts/run_v26_mid_strong_full_300ep.sh and copy best.pt to runs/coil_panet_ablation/v26_mid_strong_full_300ep/weights/\n"
+        f"  - Or run 'git add -f runs/coil_panet_ablation/.../best.pt' to make sure it's tracked\n"
+    )
+
+
+def stage_weight_for_bundle(weights: Path) -> Path:
+    """拷贝权重到 dist/_staged_best.pt (标准化名), PyInstaller 把它放到 _internal/weights/best.pt
+
+    因为 PyInstaller 的 --add-data `src;dest/` 行为:
+      - dest 有尾斜杠 → src 进入 dest/ 目录, 文件名保持原 basename
+      - dest 无尾斜杠 → src 被重命名为 dest (单文件)
+    把 src stage 成 best.pt → 用户代码统一找 _internal/weights/best.pt 即可。
+    """
+    staged = SCRIPT_DIR / "dist" / "_staged_best.pt"
+    staged.parent.mkdir(exist_ok=True, parents=True)
+    shutil.copy(weights, staged)
+    print(f"[OK] Staged weight for bundle: {staged}  → _internal/weights/best.pt")
+    return staged
 
 
 def main() -> int:
@@ -66,8 +76,9 @@ def main() -> int:
         spec.unlink()
         print("[OK] Cleaned CoilTipViz.spec")
 
-    # ---- Step 4: Locate weights ----
-    weights = find_weights()
+    # ---- Step 4: Locate + stage weights for bundle ----
+    weights_real = find_weights()
+    weights_stage = stage_weight_for_bundle(weights_real)
 
     # ---- Step 5: Build argv ----
     framediff_dir = SCRIPT_DIR / "framediff"
@@ -94,7 +105,7 @@ def main() -> int:
         "--add-data", f"{framediff_dir / 'frame_diff_detector.py'};framediff",
         "--add-data", f"{framediff_dir / 'change_capture.py'};framediff",
         "--add-data", f"{framediff_dir / 'pyav_reader.py'};framediff",
-        "--add-data", f"{weights};weights",
+        "--add-data", f"{weights_stage};weights/",  # 尾斜杠 = 目录; basename stage 为 best.pt → _internal/weights/best.pt
         str(SCRIPT_DIR / "coil_tip_viz_gui.py"),
     ]
 
