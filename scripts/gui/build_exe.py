@@ -101,8 +101,23 @@ def main() -> int:
     # ---- Step 5.5: Weight loading pre-flight (CRITICAL) ----
     # 模拟 .exe 启动时的真实 YOLO load, 如果 build 阶段就失败, 后续 PyInstaller 8 min 全白费
     # PyInstaller 不修改 .pt pickle 字节, 加载行为构建期 == 运行时
+    #
+    # ⚠️ v26 best.pt 用 Hyper-YOLO 仓库的 ultralytics 训练 (含自定义模块 MANet @ block.py:376),
+    #    pickle 里 GLOBAL 指向 ultralytics.nn.modules.block.MANet. CI 装的是官方 PyPI ultralytics
+    #    8.0.227 (无 MANet) → YOLO() 加载报 AttributeError: Can't get attribute 'MANet'.
+    # 修复: pre-flight 前 sys.path 注入 repos/Hyper-YOLO (含扩展 ultralytics + MANet),
+    #    让 MANet 类被 import → sys.modules 注册 → YOLO() 加载能找到.
     print("[5.5/6] Pre-flight: load staged .pt with ultralytics (catches all torch/weight bugs)")
     print(f"        staged: {weights_stage} ({weights_stage.stat().st_size//1024//1024} MB)")
+
+    # --- Inject Hyper-YOLO ultralytics BEFORE pre-flight (so MANet is registered) ---
+    hyper_yolo_root = REPO_ROOT / "repos" / "Hyper-YOLO"
+    if hyper_yolo_root.exists():
+        sys.path.insert(0, str(hyper_yolo_root))
+        print(f"        sys.path 注入 Hyper-YOLO: {hyper_yolo_root} (含 MANet)")
+    else:
+        print(f"        [WARN] repos/Hyper-YOLO not found, MANet injection skipped (will likely fail pre-flight)")
+
     try:
         from ultralytics import YOLO
         _m = YOLO(str(weights_stage))
@@ -114,6 +129,7 @@ def main() -> int:
         print(f"        - torch version mismatch (need exactly 2.5.1+cu121)")
         print(f"        - corrupt .pt file (re-run {weights_real.name} training)")
         print(f"        - ultralytics/torch dependency conflict (reinstall matching wheels)")
+        print(f"        - MANet missing (Hyper-YOLO repo not injected) — check repos/Hyper-YOLO exists")
         return 1
 
     # ---- Step 5.6: Bundle dep sanity: ultralytics + cv2 + av + PIL + ttkbootstrap + tkinter ----
@@ -128,6 +144,8 @@ def main() -> int:
 
     # ---- Step 5: Build argv ----
     framediff_dir = SCRIPT_DIR / "framediff"
+    # Hyper-YOLO 扩展 ultralytics 含 MANet, 必须打进 bundle, 否则 v26 best.pt 加载失败
+    hyper_yolo_root = REPO_ROOT / "repos" / "Hyper-YOLO"
     argv = [
         py, "-m", "PyInstaller",
         "--noconfirm",
@@ -144,8 +162,16 @@ def main() -> int:
         "--hidden-import", "tkinter",
         "--hidden-import", "tkinter.filedialog",
         "--hidden-import", "tkinter.messagebox",
+        # ⚠️ v26 best.pt 引用 MANet (Hyper-YOLO 自定义模块), 必须显式 hidden-import + paths
+        "--hidden-import", "ultralytics.nn.modules.block.MANet",
         "--paths", str(SCRIPT_DIR),
         "--paths", str(framediff_dir),
+    ]
+    if hyper_yolo_root.exists():
+        # 把 Hyper-YOLO 仓库加入 PyInstaller 搜索路径, 包含扩展的 ultralytics/nn/modules/block.py
+        argv += ["--paths", str(hyper_yolo_root)]
+        print(f"        PyInstaller --paths 注入 Hyper-YOLO: {hyper_yolo_root}")
+    argv += [
         "--add-data", f"{SCRIPT_DIR / 'hyper_inference.py'};.",
         "--add-data", f"{SCRIPT_DIR / 'frame_diff_wrapper.py'};.",
         "--add-data", f"{framediff_dir / 'frame_diff_detector.py'};framediff",

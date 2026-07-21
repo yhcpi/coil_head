@@ -15,6 +15,10 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
+# 项目根 = hyper_inference.py 的祖父目录 (scripts/gui/ -> scripts/ -> root)
+# 提前到 import 段后面, 让下面的 _inject_hyper_yolo_ultralytics 能用
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
 # ============================================================================
 # ⚠️ CRITICAL: torch.load monkey-patch — 在 import ultralytics 之前必须执行
 #
@@ -56,8 +60,33 @@ def _apply_torch_load_weights_only_patch() -> None:
 
 _apply_torch_load_weights_only_patch()
 
-# 项目根 = hyper_inference.py 的祖父目录 (scripts/gui/ -> scripts/ -> root)
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+# ============================================================================
+# ⚠️ CRITICAL: MANet / Hyper-YOLO 扩展 ultralytics 注入 — 在 from ultralytics import YOLO 之前
+#
+# 问题: v26 best.pt 用 Hyper-YOLO 仓库的 ultralytics (含 MANet @ block.py:376) 训练,
+#       pickle 里 GLOBAL 引用 ultralytics.nn.modules.block.MANet. 但 PyInstaller bundle /
+#       conda hyper-yolo 装的 ultralytics 是官方版, 没有 MANet → YOLO() 加载报
+#       AttributeError: Can't get attribute 'MANet'.
+#
+# 解决: 在 from ultralytics import YOLO 之前 sys.path 注入 repos/Hyper-YOLO,
+#       让 Python 优先 import 扩展版 ultralytics (含 MANet) → MANet 注册到 sys.modules.
+#       此注入在 PyInstaller bundle / 源码 / route B zip 三种环境都生效.
+# ============================================================================
+def _inject_hyper_yolo_ultralytics() -> None:
+    """把 repos/Hyper-YOLO 注入 sys.path 优先, 让 MANet 等扩展模块可见."""
+    try:
+        hyper_yolo_root = PROJECT_ROOT / "repos" / "Hyper-YOLO"
+        if not hyper_yolo_root.exists():
+            return
+        hyper_yolo_str = str(hyper_yolo_root)
+        if hyper_yolo_str not in sys.path:
+            sys.path.insert(0, hyper_yolo_str)
+    except Exception:
+        pass
+
+
+_inject_hyper_yolo_ultralytics()
 
 # ----- 默认 SOTA 权重解析 -----
 # 单一来源: v26 mid-strong full 300ep best.pt (F1=0.9359, 8MB)
