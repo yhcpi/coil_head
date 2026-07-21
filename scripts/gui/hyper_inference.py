@@ -62,31 +62,30 @@ _apply_torch_load_weights_only_patch()
 
 
 # ============================================================================
-# ⚠️ CRITICAL: MANet / Hyper-YOLO 扩展 ultralytics 注入 — 在 from ultralytics import YOLO 之前
+# ⚠️ CRITICAL: MANet 注入 — v26 best.pt pickle 反序列化需要 ultralytics.nn.modules.block.MANet
 #
-# 问题: v26 best.pt 用 Hyper-YOLO 仓库的 ultralytics (含 MANet @ block.py:376) 训练,
-#       pickle 里 GLOBAL 引用 ultralytics.nn.modules.block.MANet. 但 PyInstaller bundle /
-#       conda hyper-yolo 装的 ultralytics 是官方版, 没有 MANet → YOLO() 加载报
-#       AttributeError: Can't get attribute 'MANet'.
+# 问题: v26 best.pt 用 Hyper-YOLO 仓库 (repos/Hyper-YOLO) 的 ultralytics 训练,
+#       pickle GLOBAL 引用 ultralytics.nn.modules.block.MANet. 但 CI runner 上
+#       repos/Hyper-YOLO 不存在 (git 没 track 它, 非 submodule), 装的是纯官方
+#       ultralytics 8.0.227 无 MANet → YOLO() 加载报 AttributeError.
 #
-# 解决: 在 from ultralytics import YOLO 之前 sys.path 注入 repos/Hyper-YOLO,
-#       让 Python 优先 import 扩展版 ultralytics (含 MANet) → MANet 注册到 sys.modules.
-#       此注入在 PyInstaller bundle / 源码 / route B zip 三种环境都生效.
+# 解决: 从本地 scripts/gui/hyper_yolo_extensions 导入 vendored MANet class,
+#       它 import 时已经 monkey-patch ultralytics.nn.modules.block.MANet.
+#       pickle 反序列化能找到类, .exe bundle 自包含 (不依赖外部 repo).
+#       此注入在 PyInstaller bundle / 源码 / route B zip / 官方 ultralytics 8.0.227+
+#       四种环境都生效.
+#
+# 注: 不再依赖 repos/Hyper-YOLO (CI checkout 后那个目录不存在), 完全 vendored.
 # ============================================================================
-def _inject_hyper_yolo_ultralytics() -> None:
-    """把 repos/Hyper-YOLO 注入 sys.path 优先, 让 MANet 等扩展模块可见."""
-    try:
-        hyper_yolo_root = PROJECT_ROOT / "repos" / "Hyper-YOLO"
-        if not hyper_yolo_root.exists():
-            return
-        hyper_yolo_str = str(hyper_yolo_root)
-        if hyper_yolo_str not in sys.path:
-            sys.path.insert(0, hyper_yolo_str)
-    except Exception:
-        pass
-
-
-_inject_hyper_yolo_ultralytics()
+try:
+    # 让 hyper_yolo_extensions 包能 import — 它必须在 scripts/gui/ 同目录
+    _hyper_ext_dir = str(Path(__file__).resolve().parent)
+    if _hyper_ext_dir not in sys.path:
+        sys.path.insert(0, _hyper_ext_dir)
+    from hyper_yolo_extensions import MANet  # noqa: F401  # monkey-patches ultralytics
+except Exception:
+    # vendored module 不可用 — 让下面的加载自然抛 AttributeError, 不要 silent fail
+    pass
 
 # ----- 默认 SOTA 权重解析 -----
 # 单一来源: v26 mid-strong full 300ep best.pt (F1=0.9359, 8MB)

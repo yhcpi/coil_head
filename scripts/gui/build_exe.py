@@ -110,13 +110,16 @@ def main() -> int:
     print("[5.5/6] Pre-flight: load staged .pt with ultralytics (catches all torch/weight bugs)")
     print(f"        staged: {weights_stage} ({weights_stage.stat().st_size//1024//1024} MB)")
 
-    # --- Inject Hyper-YOLO ultralytics BEFORE pre-flight (so MANet is registered) ---
-    hyper_yolo_root = REPO_ROOT / "repos" / "Hyper-YOLO"
-    if hyper_yolo_root.exists():
-        sys.path.insert(0, str(hyper_yolo_root))
-        print(f"        sys.path 注入 Hyper-YOLO: {hyper_yolo_root} (含 MANet)")
-    else:
-        print(f"        [WARN] repos/Hyper-YOLO not found, MANet injection skipped (will likely fail pre-flight)")
+    # --- Import hyper_yolo_extensions (vendored MANet) BEFORE pre-flight ---
+    # MANet class 从本地 scripts/gui/hyper_yolo_extensions/__init__.py vendored,
+    # 不依赖外部 repos/Hyper-YOLO (CI runner 上 checkout 后那个目录不存在).
+    # import 这个 module 立刻 monkey-patch ultralytics.nn.modules.block.MANet.
+    sys.path.insert(0, str(SCRIPT_DIR))  # 让 hyper_yolo_extensions 可 import
+    try:
+        from hyper_yolo_extensions import MANet  # noqa: F401
+        print(f"        hyper_yolo_extensions MANet vendored OK")
+    except Exception as _exc:
+        print(f"        [WARN] hyper_yolo_extensions import failed: {_exc} (will likely fail pre-flight)")
 
     try:
         from ultralytics import YOLO
@@ -144,8 +147,9 @@ def main() -> int:
 
     # ---- Step 5: Build argv ----
     framediff_dir = SCRIPT_DIR / "framediff"
-    # Hyper-YOLO 扩展 ultralytics 含 MANet, 必须打进 bundle, 否则 v26 best.pt 加载失败
-    hyper_yolo_root = REPO_ROOT / "repos" / "Hyper-YOLO"
+    # vendored MANet: scripts/gui/hyper_yolo_extensions/__init__.py 含 MANet class,
+    # import 时已 monkey-patch ultralytics.nn.modules.block.MANet. 不依赖外部
+    # repos/Hyper-YOLO (CI 上那个目录不存在, git 没 track).
     argv = [
         py, "-m", "PyInstaller",
         "--noconfirm",
@@ -162,15 +166,12 @@ def main() -> int:
         "--hidden-import", "tkinter",
         "--hidden-import", "tkinter.filedialog",
         "--hidden-import", "tkinter.messagebox",
-        # ⚠️ v26 best.pt 引用 MANet (Hyper-YOLO 自定义模块), 必须显式 hidden-import + paths
-        "--hidden-import", "ultralytics.nn.modules.block.MANet",
+        # ⚠️ v26 best.pt 引用 MANet — 现在通过 vendored hyper_yolo_extensions 实现
+        #    (本地 module, 不再依赖外部 repos/Hyper-YOLO)
+        "--hidden-import", "hyper_yolo_extensions",
         "--paths", str(SCRIPT_DIR),
         "--paths", str(framediff_dir),
     ]
-    if hyper_yolo_root.exists():
-        # 把 Hyper-YOLO 仓库加入 PyInstaller 搜索路径, 包含扩展的 ultralytics/nn/modules/block.py
-        argv += ["--paths", str(hyper_yolo_root)]
-        print(f"        PyInstaller --paths 注入 Hyper-YOLO: {hyper_yolo_root}")
     argv += [
         "--add-data", f"{SCRIPT_DIR / 'hyper_inference.py'};.",
         "--add-data", f"{SCRIPT_DIR / 'frame_diff_wrapper.py'};.",
