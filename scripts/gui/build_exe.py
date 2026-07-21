@@ -83,6 +83,21 @@ def main() -> int:
     weights_real = find_weights()
     weights_stage = stage_weight_for_bundle(weights_real)
 
+    # ---- GPU inference step: detect CUDA torch in env, fail loud if not ----
+    print("[5/6] Verifying CUDA torch available for PyInstaller bundle...")
+    import importlib
+    torch_mod = importlib.import_module("torch")
+    if "+cu" not in torch_mod.__version__:
+        print(f"[ERROR] torch version {torch_mod.__version__} is CPU-only!")
+        print(f"        Want torch+cu121 (CUDA 12.1 wheel). Bundle would not include CUDA runtime.")
+        print(f"        Re-run with: pip install torch==2.5.1+cu121 --index-url https://download.pytorch.org/whl/cu121")
+        return 1
+    print(f"[OK] torch={torch_mod.__version__}  cuda_available={torch_mod.cuda.is_available()}")
+    if torch_mod.cuda.is_available():
+        print(f"[OK] CUDA device: {torch_mod.cuda.get_device_name(0)}")
+    else:
+        print(f"[WARN] CUDA not available at build time (no NVIDIA runtime). Bundle should still include CUDA DLLs.")
+
     # ---- Step 5: Build argv ----
     framediff_dir = SCRIPT_DIR / "framediff"
     argv = [

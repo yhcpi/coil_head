@@ -36,7 +36,9 @@ jobs:
           python -m pip install --upgrade pip
           # ⚠️ 必须 pin torch==2.5.x: torch 2.6+ 把 torch.load weights_only 默认从 False 改为 True,
           #    ultralytics 8.0.227 nn/tasks.py:567 不传 weights_only → UnpicklingError on DetectionModel
-          python -m pip install 'torch==2.5.1' --index-url https://download.pytorch.org/whl/cpu
+          #    pin torch==2.5.1+cu121 (CUDA 版) 让 .exe 走 GPU 推理 — PyInstaller 把 cudart/cublas/cudnn
+          #    全打进 _internal/, 用户机器只需装 NVIDIA driver 即可 GPU 推理, 完全零安装
+          python -m pip install 'torch==2.5.1+cu121' 'torchvision==0.20.1+cu121' --index-url https://download.pytorch.org/whl/cu121 --extra-index-url https://pypi.tuna.tsinghua.edu.cn/simple
           python -m pip install ultralytics==8.0.227 opencv-python pillow av ttkbootstrap pyinstaller
 
       - name: Verify imports (catch missing deps before PyInstaller wastes 10 min)
@@ -92,6 +94,30 @@ jobs:
           cd scripts\gui\dist
           python -c "import zipfile, os; zf = zipfile.ZipFile('CoilTipViz-${{ github.sha }}.zip', 'w', zipfile.ZIP_DEFLATED, compresslevel=6); root='CoilTipViz'; [zf.write(os.path.join(r,f), os.path.join(r,f).replace(os.sep,'/')) for r,_,fs in os.walk(root) for f in fs]; zf.close(); print('zip OK:', os.path.getsize('CoilTipViz-${{ github.sha }}.zip')//1024//1024, 'MB')"
 
+      - name: Build 7z-SFX self-extracting single .exe (smaller, ultra LZMA2)
+        shell: pwsh
+        run: |
+          cd scripts\gui\dist
+          # 7z is usually preinstalled on windows-latest; install if not
+          if (-not (Get-Command 7z -ErrorAction SilentlyContinue)) {
+            Write-Host "Installing 7-Zip via chocolatey..."
+            choco install 7zip -y --no-progress | Out-Null
+          }
+          $ver = (7z | Out-String).Trim().Split("`n")[0]
+          Write-Host "7z: $ver"
+          $sha = "${{ github.sha }}"
+          # 7z-SFX self-extracting installer (~150-180 MB vs 291 MB zip)
+          # User double-clicks → auto-extracts to chosen dir → launches CoilTipViz.exe
+          Write-Host "Compressing CoilTipViz\ directory with 7z ultra LZMA2..."
+          7z a -t7z "-mx=9" "-mfb=273" "-ms=on" "-sfx" "..\CoilTipViz-${sha}-installer.exe" "CoilTipViz\" 2>&1 | Select-Object -Last 6
+          $instSize = (Get-Item "..\CoilTipViz-${sha}-installer.exe").Length
+          Write-Host "installer size: $([math]::Round($instSize/1024/1024, 1)) MB (vs ~291 MB zip)"
+          # Rename to CoilTipViz-windows-installer.exe for clarity
+          Move-Item -Force "..\CoilTipViz-${sha}-installer.exe" "..\CoilTipViz-windows-installer.exe"
+          Get-Item "..\CoilTipViz-windows-installer.exe" | ForEach-Object {
+            Write-Host "FINAL: $($_.Name)  size=$(($_.Length/1024/1024).ToString('0.0')) MB"
+          }
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -99,6 +125,14 @@ jobs:
           path: scripts/gui/dist/CoilTipViz-${{ github.sha }}.zip
           retention-days: 30
           if-no-files-found: error
+
+      - name: Upload GPU SFX installer (smaller, 7z ultra LZMA2)
+        uses: actions/upload-artifact@v4
+        with:
+          name: CoilTipViz-windows-installer
+          path: scripts/gui/dist/CoilTipViz-windows-installer.exe
+          retention-days: 30
+          if-no-files-found: warn
 
       - name: Upload source zip (route B)
         uses: actions/upload-artifact@v4
