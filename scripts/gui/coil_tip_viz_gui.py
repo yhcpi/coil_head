@@ -29,6 +29,28 @@ import queue
 import threading
 from typing import Optional, List, Dict, Any
 
+# === PyInstaller --noconsole stdout 兼容层 (必须在任何 import ultralytics 之前) ===
+# PyInstaller --noconsole 把 sys.stdout / sys.stderr 换成自家 StreamProxy,
+# 该 proxy 没有 .encoding 属性 → ultralytics 8.0.227 utils/__init__.py line 233
+# 访问 sys.stdout.encoding 直接触发 AttributeError: 'NoneType' object has no attribute 'encoding'
+# 修复: 若 stdout/stderr 缺失 .encoding, 替换为带 encoding='utf-8' 的 no-op wrapper
+def _patch_stdout_for_pyinstaller():
+    import io
+    for name in ('stdout', 'stderr'):
+        cur = getattr(sys, name, None)
+        enc = getattr(cur, 'encoding', None)
+        if cur is None or enc is None:
+            # 用内存 BytesIO + TextIOWrapper 包装,写出去丢了 (GUI 程序不需要 console)
+            buf = io.BytesIO()
+            wrapper = io.TextIOWrapper(buf, encoding='utf-8', write_through=True)
+            setattr(sys, name, wrapper)
+            # 同时也 patch sys.__name__ (PyInstaller 用 sys.__stdout__ 做 fallback)
+            try:
+                setattr(sys, '__' + name + '__', wrapper)
+            except AttributeError:
+                pass
+_patch_stdout_for_pyinstaller()
+
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
