@@ -98,6 +98,34 @@ def main() -> int:
     else:
         print(f"[WARN] CUDA not available at build time (no NVIDIA runtime). Bundle should still include CUDA DLLs.")
 
+    # ---- Step 5.5: Weight loading pre-flight (CRITICAL) ----
+    # 模拟 .exe 启动时的真实 YOLO load, 如果 build 阶段就失败, 后续 PyInstaller 8 min 全白费
+    # PyInstaller 不修改 .pt pickle 字节, 加载行为构建期 == 运行时
+    print("[5.5/6] Pre-flight: load staged .pt with ultralytics (catches all torch/weight bugs)")
+    print(f"        staged: {weights_stage} ({weights_stage.stat().st_size//1024//1024} MB)")
+    try:
+        from ultralytics import YOLO
+        _m = YOLO(str(weights_stage))
+        print(f"[OK] YOLO() loaded at build time → runtime in .exe will load same way")
+        del _m
+    except Exception as _exc:
+        print(f"[ERROR] Stage pre-flight FAIL: {type(_exc).__name__}: {_exc}")
+        print(f"        Likely causes:")
+        print(f"        - torch version mismatch (need exactly 2.5.1+cu121)")
+        print(f"        - corrupt .pt file (re-run {weights_real.name} training)")
+        print(f"        - ultralytics/torch dependency conflict (reinstall matching wheels)")
+        return 1
+
+    # ---- Step 5.6: Bundle dep sanity: ultralytics + cv2 + av + PIL + ttkbootstrap + tkinter ----
+    print("[5.6/6] Pre-flight: every PyInstaller --collect-all target importable")
+    for mod_name in ("cv2", "av", "PIL", "ttkbootstrap", "tkinter"):
+        try:
+            importlib.import_module(mod_name)
+            print(f"[OK] {mod_name} importable")
+        except ImportError as _e:
+            print(f"[ERROR] {mod_name} NOT importable: {_e}")
+            return 1
+
     # ---- Step 5: Build argv ----
     framediff_dir = SCRIPT_DIR / "framediff"
     argv = [
