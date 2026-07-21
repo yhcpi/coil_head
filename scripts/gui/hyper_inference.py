@@ -50,14 +50,20 @@ def _find_bundle_weight(bundle_root: Path) -> Optional[Path]:
 
 
 def _resolve_default_deploy_pt() -> Optional[Path]:
-    """返回第一个真实存在的 SOTA 权重:
-    1) PyInstaller bundle: sys._MEIPASS/weights/best.pt (或 glob)
-    2) 源码: PROJECT_ROOT/runs/.../best.pt
+    """返回第一个真实存在的 SOTA 权重 (≥1MB):
+    1) PyInstaller bundle (.exe): sys._MEIPASS/weights/best.pt (或 glob)
+    2) Route B zip (source-bundle, 无 frozen): module同目录 weights/best.pt
+       - 适配 build_src_zip.py 路线, 解压 zip 后权重直接在同目录
+    3) 源码 dev: PROJECT_ROOT/runs/.../best.pt
     """
     if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
         bundle_w = _find_bundle_weight(Path(sys._MEIPASS))
         if bundle_w:
             return bundle_w
+    # Route B (zip 解压): weights/ 跟 hyper_inference.py 同目录
+    sibling_w = Path(__file__).parent / "weights" / "best.pt"
+    if sibling_w.is_file() and sibling_w.stat().st_size >= 1024 * 1024:
+        return sibling_w
     if SOURCE_DEPLOY_PT.is_file() and SOURCE_DEPLOY_PT.stat().st_size >= 1024 * 1024:
         return SOURCE_DEPLOY_PT
     return None

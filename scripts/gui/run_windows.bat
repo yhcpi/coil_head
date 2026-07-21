@@ -87,7 +87,8 @@ if not "%FRAMEDIFF_DIR%"=="" (
     set PYTHONPATH=%FRAMEDIFF_DIR%;%~dp0
 ) else (
     echo [WARN] Frame diff dir not found, model inference still works
-    set PYTHONPATH=%~dp0
+    REM 路线 B (zip 解压): framediff/ 在 %~dp0framediff 下, 需把它加到 path
+    set PYTHONPATH=%~dp0;%~dp0framediff
 )
 
 REM ---- Optional: drag video file as %1 ----

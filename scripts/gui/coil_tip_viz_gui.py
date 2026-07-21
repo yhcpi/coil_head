@@ -68,9 +68,12 @@ if THIS_DIR not in sys.path:
 from frame_diff_wrapper import FrameDiffProcessor
 from hyper_inference import HyperYoloDetector
 
-# pyav_reader (海康 IMKH 等 cv2 不识别的格式可回退)
-sys.path.insert(0, '/home/pi/projects/mm/帧差法')
-from pyav_reader import open_video
+# pyav_reader (海康 IMKH 等 cv2 不识别的格式可回退, 路线 B zip 下不存在, try/except 跳过)
+try:
+    sys.path.insert(0, '/home/pi/projects/mm/帧差法')
+    from pyav_reader import open_video  # noqa: WPS433
+except ImportError:
+    open_video = None  # 路线 B zip: fallback to cv2 only
 
 
 # ----------------------------------------------------------------------

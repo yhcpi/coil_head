@@ -80,12 +80,18 @@ echo [3/4] Configuring Tsinghua mirror (fast in China)...
 "!ENV_PY!" -m pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
 "!ENV_PY!" -m pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn
 
-echo [3/4] Installing ultralytics + opencv + pillow + av (retry up to 3 times)...
+echo [3/4] Installing pytorch (GPU cu121, pinned 2.5.1) + ultralytics + cv2 + av (retry up to 3 times)...
+echo        pinning torch==2.5.1 to match training env (avoids torch 2.6+ weights_only bug)
 set ATTEMPT=0
 :install_retry
 set /a ATTEMPT+=1
-"!ENV_PY!" -m pip install ultralytics==8.0.227 opencv-python pillow av --quiet
-if not errorlevel 1 goto install_done
+REM ---- Pin GPU torch (matching training env: torch==2.5.1+cu121) ----
+"!ENV_PY!" -m pip install --quiet "torch==2.5.1+cu121" "torchvision==0.20.1+cu121" --index-url https://download.pytorch.org/whl/cu121 --extra-index-url https://pypi.tuna.tsinghua.edu.cn/simple
+if errorlevel 1 goto install_continue_ultralytics
+REM ---- Then install ultralytics (already has cuda torch via line above) ----
+"!ENV_PY!" -m pip install --quiet ultralytics==8.0.227 opencv-python pillow av ttkbootstrap
+goto install_done
+:install_continue_ultralytics
 if !ATTEMPT! geq 3 goto install_fail
 echo [WARN] Attempt !ATTEMPT! failed, retrying in 5s...
 timeout /t 5 /nobreak >nul
@@ -106,13 +112,16 @@ if errorlevel 1 (
 
 REM ---- Verify ----
 echo [4/4] Verifying installation...
-"!ENV_PY!" -c "import ultralytics; import cv2; import av; import PIL; print('OK all imports')"
+"!ENV_PY!" -c "import ultralytics; import cv2; import av; import PIL; import ttkbootstrap; print('OK all imports')"
 if errorlevel 1 (
     echo [WARN] Some imports failed. Manual check:
     echo   !ENV_PY! -c "import ultralytics; import cv2; import av"
     pause
     exit /b 1
 )
+
+REM ---- Show GPU info ----
+"!ENV_PY!" -c "import torch; print(f'torch={torch.__version__}  cuda={torch.cuda.is_available()}' + (f'  dev={torch.cuda.get_device_name(0)}' if torch.cuda.is_available() else '  (CPU only)'))"
 
 echo.
 echo ============================================================

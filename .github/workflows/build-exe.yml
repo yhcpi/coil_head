@@ -64,6 +64,19 @@ jobs:
         env:
           PYTHONIOENCODING: utf-8
 
+      - name: Build source zip (route B - no PyInstaller, ~10 MB)
+        shell: pwsh
+        run: |
+          cd scripts/gui
+          python build_src_zip.py 2>&1 | Tee-Object -FilePath src_zip.log
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content src_zip.log -Tail 50 | Out-File -Append src_zip.log
+            exit $LASTEXITCODE
+          }
+          Get-ChildItem dist/CoilTipViz-source.zip | ForEach-Object {
+            "src_zip size: $($_.Length / 1024 / 1024) MB"
+          } | Out-File -Append src_zip.log
+
       - name: Upload debug log (always, even on failure)
         if: always()
         uses: actions/upload-artifact@v4
@@ -87,9 +100,19 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+      - name: Upload source zip (route B)
+        uses: actions/upload-artifact@v4
+        with:
+          name: CoilTipViz-source
+          path: scripts/gui/dist/CoilTipViz-source.zip
+          retention-days: 30
+          if-no-files-found: error
+
       - name: Summary
         if: success()
         run: |
           echo "Build complete!"
-          echo "Download artifact: CoilTipViz-windows"
+          echo "Two artifacts:"
+          echo "  - CoilTipViz-windows  (route A .exe,  ~291 MB, 双击即用)"
+          echo "  - CoilTipViz-source   (route B src,  ~10 MB, 需 install_hyper_yolo.bat + run_windows.bat)"
           echo "URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
