@@ -22,18 +22,24 @@ def find_weights() -> Path:
 
     1. v26 mid-strong full 300ep best.pt (F1=0.9359 SOTA, 8MB)
     2. v18_3 hard neg weak aug pt (F1=0.9286 legacy SOTA, 32MB)
-    3. placeholder.pt (CI-only fallback when repo has no real weights)
+    3. placeholder.pt — REJECTED in real build, CI must force-import a real .pt
     """
     candidates = [
         REPO_ROOT / "runs" / "coil_panet_ablation" / "v26_mid_strong_full_300ep" / "weights" / "best.pt",
         REPO_ROOT / "runs" / "deploy_best" / "v18_3_epoch60_hard_neg_weak_aug.pt",
-        REPO_ROOT / "runs" / "deploy_best" / "placeholder.pt",
     ]
     for p in candidates:
-        if p.exists():
-            print(f"[OK] Weights: {p}")
+        if p.exists() and p.stat().st_size > 1024 * 1024:
+            print(f"[OK] Weights: {p}  ({p.stat().st_size//1024//1024} MB)")
             return p
-    raise FileNotFoundError("No weights file found (tried v26 SOTA, v18.3 legacy, placeholder)")
+    # 真实权重一个都没有 → 失败，不打包 placeholder（否则 .exe 启动 ultralytics 必崩）
+    raise FileNotFoundError(
+        "No real weights found (≥1MB required).\n"
+        f"  Searched:\n"
+        f"    - {REPO_ROOT / 'runs' / 'coil_panet_ablation' / 'v26_mid_strong_full_300ep' / 'weights' / 'best.pt'}\n"
+        f"    - {REPO_ROOT / 'runs' / 'deploy_best' / 'v18_3_epoch60_hard_neg_weak_aug.pt'}\n"
+        "  Placeholder (0-byte) is NOT bundled — would cause 'NoneType has no attribute encoding'."
+    )
 
 
 def main() -> int:

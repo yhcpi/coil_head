@@ -9,6 +9,7 @@ Usage:
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -17,11 +18,24 @@ import numpy as np
 # 项目根 = hyper_inference.py 的祖父目录 (scripts/gui/ -> scripts/ -> root)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-# 默认权重候选 (按优先级) — 部署 SOTA 自动更新
-#   v26 mid-strong full 300ep: F1=0.9359 (2026-07-20 SOTA) — 8MB
-#   v18.3 hard neg weak aug : F1=0.9286 (历史 SOTA 备份)  — 32MB
-#   Hyper-YOLO baseline      : 通用 base
-DEFAULT_DEPLOY_PT = PROJECT_ROOT / "runs" / "coil_panet_ablation" / "v26_mid_strong_full_300ep" / "weights" / "best.pt"
+# ----- PyInstaller bundle 支持 -----
+# 在 .exe 运行时，weights 文件被 --add-data "weights;weights" 打到 sys._MEIPASS/weights/best.pt
+# 但 PROJECT_ROOT 在 .exe 里指向用户解压目录（不是 _internal/），所以要走 sys._MEIPASS
+if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+    BUNDLE_ROOT = Path(sys._MEIPASS)
+    BUNDLE_WEIGHTS = BUNDLE_ROOT / "weights" / "best.pt"
+else:
+    BUNDLE_ROOT = None
+    BUNDLE_WEIGHTS = None
+
+# 默认权重候选 (按优先级)
+#   在 .exe 里: sys._MEIPASS/weights/best.pt  (PyInstaller --add-data "weights;weights")
+#   在源码里: PROJECT_ROOT/runs/coil_panet_ablation/v26_mid_strong_full_300ep/weights/best.pt
+DEFAULT_DEPLOY_PT = (
+    BUNDLE_WEIGHTS
+    if BUNDLE_WEIGHTS is not None
+    else PROJECT_ROOT / "runs" / "coil_panet_ablation" / "v26_mid_strong_full_300ep" / "weights" / "best.pt"
+)
 LEGACY_DEPLOY_PT = PROJECT_ROOT / "runs" / "deploy_best" / "v18_3_epoch60_hard_neg_weak_aug.pt"
 FALLBACK_PT = PROJECT_ROOT / "repos" / "Hyper-YOLO" / "hyper-yolon.pt"
 
@@ -47,30 +61,55 @@ def _resolve_device(device: Union[str, int]) -> str:
         return "cpu"
 
 
+def _is_valid_weight_file(p: Path) -> bool:
+    """判断是否是真实的 .pt 权重（存在 + ≥1MB，排除 placeholder/空文件）。
+
+    PyInstaller bundle 里如果 CI fallback 用 placeholder.pt，那个文件 0 字节，
+    加载它会让 ultralytics 抛 'NoneType has no attribute encoding'。
+    """
+    if not p.is_file():
+        return False
+    try:
+        return p.stat().st_size >= 1024 * 1024  # ≥1MB
+    except OSError:
+        return False
+
+
 def _resolve_model_path(model_path: Optional[str]) -> Path:
-    """缺省/不存在时自动 fallback 到 hyper-yolon.pt。"""
+    """缺省/不存在时自动 fallback 到历史 SOTA → hyper-yolon.pt。
+
+    - 用户显式给的路径 → 校验必须存在且 ≥1MB，否则抛 FileNotFoundError（不静默 fallback）
+    - 缺省：依次尝试 部署 SOTA (.exe:_MEIPASS/weights/best.pt / 源码:runs/...) → 历史 SOTA → fallback
+    """
     if model_path:
         p = Path(model_path)
         if not p.is_absolute():
             p = PROJECT_ROOT / p
-        if p.is_file():
+        if _is_valid_weight_file(p):
             return p
-        # 用户显式给了路径但找不到 → 不静默 fallback，给清晰错误
+        # 用户显式给了路径但找不到或太小 → 不静默 fallback
+        if p.is_file():
+            size = p.stat().st_size
+            raise FileNotFoundError(
+                f"[HyperYoloDetector] 指定的权重文件存在但太小 (<1MB, 可能是 placeholder/损坏):\n"
+                f"  路径: {p}\n"
+                f"  大小: {size} bytes\n\n"
+                "请手动选一个真实的 v18.3 或 v26 .pt 文件。"
+            )
         raise FileNotFoundError(
-            f"[HyperYoloDetector] 指定的模型权重不存在: {p}\n"
-            f"  部署权重候选: {DEFAULT_DEPLOY_PT}\n"
-            f"  fallback 候选: {FALLBACK_PT}"
+            f"[HyperYoloDetector] 指定的模型权重不存在:\n"
+            f"  路径: {p}\n"
         )
     # 缺省: 部署 SOTA → 历史 SOTA → fallback
     for cand in (DEFAULT_DEPLOY_PT, LEGACY_DEPLOY_PT, FALLBACK_PT):
-        if cand.is_file():
+        if _is_valid_weight_file(cand):
             return cand
     raise FileNotFoundError(
-        "[HyperYoloDetector] 未找到任何可用权重:\n"
+        "[HyperYoloDetector] 自动 fallback 也未找到任何 ≥1MB 权重:\n"
         f"  - 部署 SOTA : {DEFAULT_DEPLOY_PT}\n"
         f"  - 历史 SOTA: {LEGACY_DEPLOY_PT}\n"
-        f"  - fallback : {FALLBACK_PT}\n"
-        "请先训练或下载 hyper-yolon.pt。"
+        f"  - fallback : {FALLBACK_PT}\n\n"
+        "请手动选择 .pt 文件。"
     )
 
 
@@ -85,7 +124,7 @@ class HyperYoloDetector:
 
     def __init__(
         self,
-        model_path: str = "runs/deploy_best/v18_3_epoch60_hard_neg_weak_aug.pt",
+        model_path: Optional[str] = None,  # None → 自动 fallback 链 (部署 SOTA → 历史 SOTA → base)
         conf: float = 0.15,
         imgsz: int = 1024,
         device: str = "0",
