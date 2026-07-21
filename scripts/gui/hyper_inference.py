@@ -15,6 +15,47 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
+# ============================================================================
+# ⚠️ CRITICAL: torch.load monkey-patch — 在 import ultralytics 之前必须执行
+#
+# 问题: ultralytics 8.0.227 nn/tasks.py:567 硬编码 `torch.load(file, map_location='cpu')`,
+#       没传 weights_only. torch 2.5 默认 weights_only=False OK, 但 torch 2.6+ 默认改为
+#       True → 加载 v26 best.pt (含 DetectionModel 等未注册类) 时抛 UnpicklingError:
+#       "Unsupported global: GLOBAL ultralytics.nn.tasks.DetectionModel".
+#       用户机器上 run_windows.bat 找到 Windows 的 Python, 可能是 torch 2.6+, 必报.
+#
+# 解决: 在最早期 monkey-patch torch.load 默认 weights_only=False. 这样:
+#       - torch 2.5: 不变 (默认就是 False, 但 explicit 更稳)
+#       - torch 2.6+: 强制 False, 跳过 weights_only 检查, ultralytics 加载 OK
+#       - 安全: best.pt 是我们自己训练的, 来源可信, weights_only 安全检查没必要
+#
+# 此 patch 必须在 `from ultralytics import YOLO` 之前, 否则 ultralytics 已经 import
+# 并缓存了原始 torch.load 引用 (ultralytics.nn.tasks.safe_load 调 torch.load).
+# ============================================================================
+def _apply_torch_load_weights_only_patch() -> None:
+    """强制 torch.load 默认 weights_only=False, 兼容 torch 2.5/2.6/2.7."""
+    try:
+        import torch as _torch
+    except ImportError:
+        return  # torch 没装, 让后面 ImportError 自然抛
+    _orig_load = _torch.load
+    # 只 patch 一次 (避免循环)
+    if getattr(_orig_load, "_weights_only_patched", False):
+        return
+
+    def _patched_load(*args, **kwargs):
+        # 用户显式传了 weights_only → 尊重用户选择
+        if "weights_only" not in kwargs:
+            kwargs["weights_only"] = False
+        return _orig_load(*args, **kwargs)
+
+    _patched_load.__wrapped__ = _orig_load  # type: ignore[attr-defined]
+    _patched_load._weights_only_patched = True  # type: ignore[attr-defined]
+    _torch.load = _patched_load
+
+
+_apply_torch_load_weights_only_patch()
+
 # 项目根 = hyper_inference.py 的祖父目录 (scripts/gui/ -> scripts/ -> root)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
