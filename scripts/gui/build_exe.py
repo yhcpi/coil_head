@@ -38,14 +38,17 @@ def find_weights() -> Path:
 
 
 def stage_weight_for_bundle(weights: Path) -> Path:
-    """拷贝权重到 dist/_staged_best.pt (标准化名), PyInstaller 把它放到 _internal/weights/best.pt
+    """拷贝权重到 dist/best.pt (标准化名), PyInstaller 把它放到 _internal/weights/best.pt
 
     因为 PyInstaller 的 --add-data `src;dest/` 行为:
       - dest 有尾斜杠 → src 进入 dest/ 目录, 文件名保持原 basename
       - dest 无尾斜杠 → src 被重命名为 dest (单文件)
     把 src stage 成 best.pt → 用户代码统一找 _internal/weights/best.pt 即可。
+
+    ⚠️ 文件名必须是 best.pt 而不是 _staged_best.pt: PyInstaller 保留 src 的 basename,
+       之前误用 _staged_best.pt 导致 bundle 里出现 _internal/weights/_staged_best.pt (用户报错).
     """
-    staged = SCRIPT_DIR / "dist" / "_staged_best.pt"
+    staged = SCRIPT_DIR / "dist" / "best.pt"
     staged.parent.mkdir(exist_ok=True, parents=True)
     shutil.copy(weights, staged)
     print(f"[OK] Staged weight for bundle: {staged}  → _internal/weights/best.pt")

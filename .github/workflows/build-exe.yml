@@ -34,6 +34,9 @@ jobs:
       - name: Install dependencies (ultralytics + opencv + pillow + av + ttkbootstrap + pyinstaller)
         run: |
           python -m pip install --upgrade pip
+          # ⚠️ 必须 pin torch==2.5.x: torch 2.6+ 把 torch.load weights_only 默认从 False 改为 True,
+          #    ultralytics 8.0.227 nn/tasks.py:567 不传 weights_only → UnpicklingError on DetectionModel
+          python -m pip install 'torch==2.5.1' --index-url https://download.pytorch.org/whl/cpu
           python -m pip install ultralytics==8.0.227 opencv-python pillow av ttkbootstrap pyinstaller
 
       - name: Verify imports (catch missing deps before PyInstaller wastes 10 min)
