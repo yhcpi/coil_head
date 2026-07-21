@@ -74,9 +74,13 @@ def main() -> int:
         "--collect-all", "ultralytics",
         "--collect-all", "torch",
         "--collect-all", "av",
+        "--collect-all", "ttkbootstrap",          # TRAE IDE 风格 GUI 主题 (cosmo)
         "--hidden-import", "cv2",
         "--hidden-import", "PIL",
         "--hidden-import", "numpy",
+        "--hidden-import", "tkinter",
+        "--hidden-import", "tkinter.filedialog",
+        "--hidden-import", "tkinter.messagebox",
         "--paths", str(SCRIPT_DIR),
         "--paths", str(framediff_dir),
         "--add-data", f"{SCRIPT_DIR / 'hyper_inference.py'};.",

@@ -31,14 +31,14 @@ jobs:
           python -m pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
           python -m pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn
 
-      - name: Install dependencies (ultralytics + opencv + pillow + av + pyinstaller)
+      - name: Install dependencies (ultralytics + opencv + pillow + av + ttkbootstrap + pyinstaller)
         run: |
           python -m pip install --upgrade pip
-          python -m pip install ultralytics==8.0.227 opencv-python pillow av pyinstaller
+          python -m pip install ultralytics==8.0.227 opencv-python pillow av ttkbootstrap pyinstaller
 
-      - name: Verify imports
+      - name: Verify imports (catch missing deps before PyInstaller wastes 10 min)
         run: |
-          python -c "import ultralytics; import cv2; import av; import PIL; import PyInstaller; print('All deps OK')"
+          python -c "import ultralytics; import cv2; import av; import PIL; import ttkbootstrap; import PyInstaller; print('All deps OK, ttkbootstrap', __import__('ttkbootstrap'))"
 
       - name: Create placeholder weights (so PyInstaller always has a file to bundle)
         shell: cmd

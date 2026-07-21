@@ -90,6 +90,40 @@ COLOR_INFO_SOFT     = "#EDF4FF"
 FONT_FAMILY      = "Segoe UI"
 FONT_FAMILY_MONO = "Cascadia Mono"
 
+# 优先字体 (中文+英文) — 在 Windows 上自动挑选第一个可用的
+WIN_FONT_CANDIDATES      = ("Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI",
+                            "PingFang SC", "Hiragino Sans GB", "SimSun", "Noto Sans CJK SC")
+WIN_FONT_MONO_CANDIDATES = ("Cascadia Mono", "Cascadia Code", "Consolas",
+                            "Source Code Pro", "JetBrains Mono", "Courier New")
+
+
+def _pick_win_font(candidates: tuple, fallback: str) -> str:
+    """从候选列表里挑当前 Tk 可见的第一个字体。
+
+    没装任何 CJK 字体时回退到 fallback (Segoe UI / Cascadia Mono / TkDefaultFont)。
+    Windows 10/11 自带 Microsoft YaHei UI + Cascadia Mono，所以实际部署一定能拿到。
+    """
+    try:
+        import tkinter.font as tkfont
+        # 必须在 root 存在后才能列出 family；本模块顶层未创建 root，所以
+        # 此函数被首次调用时（_build_ui 创建 root 之前）会拿到空集合，
+        # 此时直接返回 fallback。等真正渲染时 Tk 会自动通过系统 fallback 处理。
+        available = set(tkfont.families())
+    except Exception:
+        return fallback
+    for c in candidates:
+        if c in available:
+            return c
+    return fallback
+
+
+# 模块加载时执行一次（GUI 启动后此值仍可被 _build_ui 内的 pick 覆盖，
+# 但 99% 情况下 _pick_win_font 在 root 创建后调用，结果就是 YaHei UI）
+FONT_FAMILY      = _pick_win_font(WIN_FONT_CANDIDATES,      FONT_FAMILY)
+FONT_FAMILY_MONO = _pick_win_font(WIN_FONT_MONO_CANDIDATES, FONT_FAMILY_MONO)
+print(f"[coil_tip_viz_gui] FONT_FAMILY      = {FONT_FAMILY}")
+print(f"[coil_tip_viz_gui] FONT_FAMILY_MONO = {FONT_FAMILY_MONO}")
+
 # state -> 颜色映射 (用于徽章圆点)
 STATE_COLORS = {
     "STABLE": COLOR_SUCCESS,
@@ -171,10 +205,15 @@ class _Tooltip:
 # ----------------------------------------------------------------------
 class CoilTipVizGUI:
     def __init__(self, root: "ttk.Window"):
+        global FONT_FAMILY, FONT_FAMILY_MONO
         self.root = root
         self.root.title("钢卷头尾检测 GUI")
         self.root.geometry("1280x800")
         self.root.minsize(1100, 700)
+
+        # ---- 重新解析字体 (root 创建后 tkfont.families() 可用) ----
+        FONT_FAMILY      = _pick_win_font(WIN_FONT_CANDIDATES,      FONT_FAMILY)
+        FONT_FAMILY_MONO = _pick_win_font(WIN_FONT_MONO_CANDIDATES, FONT_FAMILY_MONO)
 
         # ---- 运行状态 (全部保留) ----
         self.video_paths: List[str] = []
