@@ -1,0 +1,25 @@
+# Old experimental files (pre-v39) — kept locally for reference
+_archive/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+
+# Temp / OS
+.DS_Store
+.vscode/
+.idea/
+
+# Model weights (if any), large binaries
+*.pt
+*.pth
+*.so
+*.dll
+
+# Large data (regenerable from upstream)
+yhc/imgs/
+yhc/mask/
+yhc/mask_inspect/
+output*/
